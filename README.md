@@ -126,6 +126,12 @@ proxy: ""                           # optional, e.g. socks5://127.0.0.1:1080
 uv sync
 uv run pytest
 uv run ruff check src tests scripts
+
+# Configure like a regular user (shared ~/.kurigram-mcp):
+uv run kurigram-mcp setup
+# Or isolate a dev environment (never touches your real config):
+# KURIGRAM_MCP_HOME=$PWD/.dev-home uv run kurigram-mcp setup
+# KURIGRAM_MCP_HOME=$PWD/.dev-home uv run kurigram-mcp run
 ```
 
 ## 📄 License

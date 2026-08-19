@@ -122,6 +122,12 @@ proxy: ""                           # 可选,如 socks5://127.0.0.1:1080
 uv sync
 uv run pytest
 uv run ruff check src tests scripts
+
+# 与用户一致的方式配置(共享 ~/.kurigram-mcp):
+uv run kurigram-mcp setup
+# 或隔离开发环境(不碰真实配置):
+# KURIGRAM_MCP_HOME=$PWD/.dev-home uv run kurigram-mcp setup
+# KURIGRAM_MCP_HOME=$PWD/.dev-home uv run kurigram-mcp run
 ```
 
 ## 📄 License
