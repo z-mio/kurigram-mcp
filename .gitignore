@@ -19,3 +19,6 @@ dist/
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
+
+# ---- 开发隔离环境(KURIGRAM_MCP_HOME 指向项目内时)----
+.dev-home/
