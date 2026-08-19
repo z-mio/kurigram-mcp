@@ -21,21 +21,18 @@ def test_defaults(monkeypatch) -> None:
     assert s2.session_dir == default_session_dir()
 
 
-def test_session_dir_dev_mode_uses_cwd(monkeypatch, tmp_path) -> None:
-    """开发模式(当前目录有 .env)时,会话文件留在当前目录,向后兼容。"""
-    (tmp_path / ".env").write_text("API_ID=1\n")
-    monkeypatch.chdir(tmp_path)
-    s = Settings(_env_file=None)
-    assert s.session_dir == "."
-
-
-def test_session_dir_xdg_mode_without_env(monkeypatch, tmp_path) -> None:
-    """uvx 模式(无 .env)时,会话文件落到 KURIGRAM_MCP_HOME 数据目录。"""
-    monkeypatch.chdir(tmp_path)
-    s = Settings(_env_file=None)
+def test_session_dir_always_home(monkeypatch, tmp_path) -> None:
+    """会话目录固定 KURIGRAM_MCP_HOME(不随运行目录变化)。"""
     import os
 
+    monkeypatch.chdir(tmp_path)
+    s = Settings(_env_file=None)
     assert s.session_dir == os.environ.get("KURIGRAM_MCP_HOME")
+
+    # 即使 cwd 有 .env 也不改变
+    (tmp_path / ".env").write_text("API_ID=1\n")
+    s2 = Settings(_env_file=None)
+    assert s2.session_dir == os.environ.get("KURIGRAM_MCP_HOME")
 
 
 def test_session_file_binds_api_id(monkeypatch) -> None:

@@ -70,12 +70,9 @@ class Settings(BaseSettings):
     api_id: int | None = None
     api_hash: str | None = None
 
-    # ---- 会话(默认 ~/.kurigram-mcp,持久化)----
+    # ---- 会话(固定 ~/.kurigram-mcp,持久化;可用 SESSION_DIR 覆盖)----
     session_name: str = "kurigram"
-    # 开发模式(当前目录有 .env)用当前目录,向后兼容;否则用 ~/.kurigram-mcp
-    session_dir: str = Field(
-        default_factory=lambda: "." if Path(".env").exists() else default_session_dir()
-    )
+    session_dir: str = Field(default_factory=default_session_dir)
 
     # ---- 聊天白名单(基础兜底;HTTP 模式下可用请求头 X-Kurigram-Allowed-Chats 覆盖)----
     allowed_chat_ids: str = ""
