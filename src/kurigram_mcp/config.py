@@ -44,8 +44,6 @@ class Settings(BaseSettings):
     """字段名:YAML 用小写字段名;环境变量用大写(如 ALLOWED_CHAT_IDS)。"""
 
     model_config = SettingsConfigDict(
-        env_file=str(Path(".env")),
-        env_file_encoding="utf-8",
         extra="ignore",
     )
 
@@ -58,12 +56,14 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        """来源顺序:init > 环境变量 > YAML 主配置 > 项目 .env。"""
+        """来源顺序:init > 环境变量 > ~/.kurigram-mcp/config.yaml。
+
+        刻意不读取当前目录的 .env:避免在其他项目目录启动时配置串台。
+        """
         return (
             init_settings,
             env_settings,
             YamlConfigSettingsSource(settings_cls, yaml_file=default_config_file()),
-            dotenv_settings,
         )
 
     # ---- Telegram 凭据(必填,来自 https://my.telegram.org/apps)----
