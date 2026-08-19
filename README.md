@@ -1,0 +1,133 @@
+<div align="center">
+
+# 🤖 kurigram-mcp
+
+**Debug Telegram bots with AI** — a local MCP server that drives your Telegram user session over MTProto.
+
+[![PyPI Version](https://img.shields.io/pypi/v/kurigram-mcp.svg)](https://pypi.org/project/kurigram-mcp/)
+[![Python Versions](https://img.shields.io/pypi/pyversions/kurigram-mcp.svg)](https://pypi.org/project/kurigram-mcp/)
+[![License](https://img.shields.io/pypi/l/kurigram-mcp.svg)](https://github.com/z-mio/kurigram-mcp/blob/main/LICENSE)
+
+**English** · [简体中文](README.zh.md)
+
+</div>
+
+---
+
+## ✨ Features
+
+|                       |                                                                                                                       |
+|-----------------------|-----------------------------------------------------------------------------------------------------------------------|
+| 🔌 **Standard MCP**   | Streamable HTTP transport, 2026-07-28 protocol, backward-compatible with 2025-11-25 clients (Claude Code, Codex, DSH) |
+| 🧪 **Bot debugging**  | Send `/start`, measure reply latency, wait for events, drain update streams                                           |
+| 🛠️ **Deep debugging** | `raw_invoke` any MTProto function, with built-in API discovery                                                        |
+| 🔒 **Chat whitelist** | Per-client control via request header, fail-closed by default                                                         |
+| ⚡ **Stateless**      | Server restarts don't break connected clients                                                                         |
+| 🚀 **Zero config**    | `uv tool install`, interactive setup wizard, one-command login                                                        |
+
+## 🚀 Quick Start
+
+```bash
+# 1. Install (provides `kurigram-mcp` and the `km` alias)
+uv tool install kurigram-mcp
+
+# 2. One-time setup: API_ID / API_HASH / whitelist / proxy / port
+#    AUTH_TOKEN is auto-generated if left blank (Bearer auth on by default)
+km setup
+
+# 3. Log in (skip if you chose to during setup): phone → code → 2FA
+km auth
+
+# 4. Start the server
+km run     # default: http://127.0.0.1:8765/mcp
+```
+
+> Get `API_ID` / `API_HASH` from [my.telegram.org/apps](https://my.telegram.org/apps). Login must be performed by you —
+> credentials never leave your machine.
+
+## 🧰 Tools (22)
+
+| Group      | Tools                                                                                                                                                    |
+|------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 🧾 Session | `whoami`, `mcp_get_server_info`                                                                                                                          |
+| 📤 Send    | `send_message`, `send_photo`, `send_document`, `edit_message`, `delete_message`, `send_chat_action`, `start_bot`, `click_inline_button`, `send_reaction` |
+| 📥 Read    | `get_chat`, `get_chat_history`, `get_messages`, `get_dialogs`, `search_messages`, `download_media`                                                       |
+| ⏱️ Events   | `wait_for_update`, `drain_updates`                                                                                                                       |
+| 🔬 Deep    | `raw_invoke`, `list_raw_methods`, `get_raw_method_info`                                                                                                  |
+
+Errors follow a stable `[CODE] message` format: `NOT_WHITELISTED` · `FLOOD_WAIT {seconds}` · `SESSION_INVALID` · `RPC` ·
+`NETWORK` · `INTERNAL`.
+
+## 🔌 Client Setup
+
+```bash
+# Claude Code
+claude mcp add --transport http kurigram-mcp http://127.0.0.1:8765/mcp \
+  --header "Authorization: Bearer <AUTH_TOKEN>" \
+  --header "X-Kurigram-Allowed-Chats: 6540476263"   # optional per-client whitelist
+```
+
+```toml
+# Codex (~/.codex/config.toml)
+[mcp_servers.kurigram-mcp]
+url = "http://127.0.0.1:8765/mcp"
+http_headers = { "Authorization" = "Bearer <AUTH_TOKEN>", "X-Kurigram-Allowed-Chats" = "6540476263" }
+```
+
+```yaml
+# DSH — cordis.yml plugin row (@deepseek-ai/dsh-mcp-client)
+- id: mcp-kurigram
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: kurigram
+    transport: streamable-http
+    url: http://127.0.0.1:8765/mcp
+    headers:
+      Authorization: !!js '`Bearer ${process.env.KURIGRAM_TOKEN}`'
+      X-Kurigram-Allowed-Chats: '6540476263'
+```
+
+### 🔐 Chat Whitelist
+
+1. **Request header `X-Kurigram-Allowed-Chats`** — per-client declaration (comma-separated: numeric chat ids,
+   `@username`,
+   `me`).
+2. **Config `allowed_chat_ids`** — fallback when the header is absent.
+
+Fail-closed: chats outside the whitelist are rejected with `[NOT_WHITELISTED]`; `get_dialogs` only returns whitelisted
+chats.
+
+## ⚙️ Configuration
+
+All configuration lives in **one file**: `~/.kurigram-mcp/config.yaml`.
+
+```yaml
+api_id: 123456
+api_hash: your_hash
+allowed_chat_ids: "123456789,me"   # fallback whitelist
+host: 127.0.0.1
+port: 8765
+auth_token: auto_generated_or_yours # Bearer auth
+proxy: ""                           # optional, e.g. socks5://127.0.0.1:1080
+```
+
+## 📁 Data & Files
+
+```
+~/.kurigram-mcp/
+├── config.yaml         # setup-generated config (chmod 600)
+├── u_{API_ID}.session  # Telegram session (bound to API_ID, persists)
+└── downloads/          # download_media output
+```
+
+## 🧑‍💻 Development
+
+```bash
+uv sync
+uv run pytest
+uv run ruff check src tests scripts
+```
+
+## 📄 License
+
+[MIT](LICENSE)
