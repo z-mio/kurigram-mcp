@@ -19,6 +19,23 @@ _USERNAME_CACHE: dict[str, tuple[int, float]] = {}
 _USERNAME_TTL = 60.0
 
 
+async def resolve_username(client, name: str, me_id: int) -> int:
+    """解析 @username / me -> 数字 chat_id(TTL 缓存;client 需提供 async get_chat)。
+
+    供白名单与工具层 chat_id 参数共用,保证同一用户名在同一窗口期解析一致。
+    """
+    key = name.strip().removeprefix("@").lower()
+    if key in ("me", "self"):
+        return me_id
+    now = time.time()
+    cached = _USERNAME_CACHE.get(key)
+    if cached and now - cached[1] < _USERNAME_TTL:
+        return cached[0]
+    chat = await client.get_chat(key)
+    _USERNAME_CACHE[key] = (chat.id, now)
+    return chat.id
+
+
 class AccessControl:
     def __init__(self, raw: str = "", strict: bool = False) -> None:
         self.strict = strict
@@ -40,15 +57,8 @@ class AccessControl:
         if self._want_me:
             self._ids.add(me_id)
         for name in sorted(self._usernames):
-            cached = _USERNAME_CACHE.get(name)
-            now = time.time()
-            if cached and now - cached[1] < _USERNAME_TTL:
-                self._ids.add(cached[0])
-                continue
             try:
-                chat = await client.get_chat(name)
-                self._ids.add(chat.id)
-                _USERNAME_CACHE[name] = (chat.id, now)
+                self._ids.add(await resolve_username(client, name, me_id))
             except Exception as exc:  # noqa: BLE001 - 解析失败按条目处理
                 self._unresolved.append(name)
                 logger.warning("白名单条目解析失败 @{}: {}", name, exc)

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import types
+
 import pytest
 
 from kurigram_mcp.errors import FLOOD_WAIT, McpError
-from kurigram_mcp.tools.common import require_chat, wrap_errors
+from kurigram_mcp.tools.common import require_chat, resolve_chat_id, wrap_errors
 
 
 class FakeAccess:
@@ -14,6 +16,61 @@ class FakeAccess:
 
     def is_allowed(self, chat_id: int) -> bool:
         return chat_id in self._allowed
+
+
+class FakeRaw:
+    """伪 pyrogram Client:get_chat 支持 username 解析。"""
+
+    def __init__(self, users: dict[str, int]) -> None:
+        self.users = users
+        self.calls = 0
+
+    async def get_chat(self, name: str):
+        self.calls += 1
+        if name not in self.users:
+            raise ValueError(f"username not found: {name}")
+        return types.SimpleNamespace(id=self.users[name])
+
+
+class FakeClient:
+    def __init__(self, users: dict[str, int]) -> None:
+        self.raw = FakeRaw(users)
+        self.me = types.SimpleNamespace(id=99)
+
+
+@pytest.mark.asyncio
+async def test_resolve_chat_id_forms() -> None:
+    client = FakeClient({"ziotestbot": 6540476263, "glbetabot": 8977177737})
+    assert await resolve_chat_id(client, 5) == 5
+    assert await resolve_chat_id(client, -1001973476176) == -1001973476176
+    assert await resolve_chat_id(client, "-1001973476176") == -1001973476176
+    assert await resolve_chat_id(client, "@ziotestbot") == 6540476263
+    assert await resolve_chat_id(client, "ziotestbot") == 6540476263
+    assert await resolve_chat_id(client, "me") == 99
+    assert await resolve_chat_id(client, "Me") == 99
+    assert await resolve_chat_id(client, "@GLBetabot") == 8977177737
+
+
+@pytest.mark.asyncio
+async def test_resolve_chat_id_username_cache() -> None:
+    """同用户名二次解析应命中 TTL 缓存,不再发起网络调用。"""
+    from kurigram_mcp import access as access_mod
+
+    access_mod._USERNAME_CACHE.clear()
+    try:
+        client = FakeClient({"ziotestbot": 1})
+        assert await resolve_chat_id(client, "@ziotestbot") == 1
+        assert await resolve_chat_id(client, "@ziotestbot") == 1
+        assert client.raw.calls == 1
+    finally:
+        access_mod._USERNAME_CACHE.clear()
+
+
+@pytest.mark.asyncio
+async def test_resolve_chat_id_unknown_username_raises() -> None:
+    client = FakeClient({})
+    with pytest.raises(ValueError):
+        await resolve_chat_id(client, "@nobody")
 
 
 def test_require_chat_allows_whitelisted() -> None:

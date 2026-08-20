@@ -45,18 +45,16 @@ km run     # default: http://127.0.0.1:8765/mcp
 > Get `API_ID` / `API_HASH` from [my.telegram.org/apps](https://my.telegram.org/apps). Login must be performed by you —
 > credentials never leave your machine.
 
-## 🧰 Tools (22)
+## 🧰 Tools (34)
 
-| Group      | Tools                                                                                                                                                    |
-|------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 🧾 Session | `whoami`, `mcp_get_server_info`                                                                                                                          |
-| 📤 Send    | `send_message`, `send_photo`, `send_document`, `edit_message`, `delete_message`, `send_chat_action`, `start_bot`, `click_inline_button`, `send_reaction` |
-| 📥 Read    | `get_chat`, `get_chat_history`, `get_messages`, `get_dialogs`, `search_messages`, `download_media`                                                       |
-| ⏱️ Events   | `wait_for_update`, `drain_updates`                                                                                                                       |
-| 🔬 Deep    | `raw_invoke`, `list_raw_methods`, `get_raw_method_info`                                                                                                  |
-
-Errors follow a stable `[CODE] message` format: `NOT_WHITELISTED` · `FLOOD_WAIT {seconds}` · `SESSION_INVALID` · `RPC` ·
-`NETWORK` · `INTERNAL`.
+| Group      | Tools                                                                                                                                                                                                                                                                        |
+|------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 🧾 Session | `whoami`, `mcp_get_server_info`                                                                                                                                                                                                                                              |
+| 📤 Send    | `send_message`, `send_photo`, `send_document`, `send_voice`, `send_sticker`, `send_media_group`, `send_poll`, `vote_poll`, `forward_message`, `edit_message`, `delete_message`, `send_chat_action`, `start_bot`, `click_inline_button`, `send_reaction`, `send_inline_query` |
+| 📥 Read    | `get_chat`, `get_chat_history`, `get_messages`, `get_dialogs`, `search_messages`, `get_chat_members_count`, `download_media`                                                                                                                                                 |
+| 👥 Group   | `join_chat`, `leave_chat`                                                                                                                                                                                                                                                    |
+| ⏱️ Events   | `wait_for_update`(谓词含 `is_media` / `media_type`), `drain_updates`                                                                                                                                                                                                         |
+| 🔬 Deep    | `raw_invoke`, `list_raw_methods`, `get_raw_method_info`                                                                                                                                                                                                                      |
 
 ## 🔌 Client Setup
 

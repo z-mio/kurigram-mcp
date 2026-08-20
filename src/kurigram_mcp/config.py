@@ -71,7 +71,6 @@ class Settings(BaseSettings):
     api_hash: str | None = None
 
     # ---- 会话(固定 ~/.kurigram-mcp,持久化;可用 SESSION_DIR 覆盖)----
-    session_name: str = "kurigram"
     session_dir: str = Field(default_factory=default_session_dir)
 
     # ---- 聊天白名单(基础兜底;HTTP 模式下可用请求头 X-Kurigram-Allowed-Chats 覆盖)----
@@ -91,9 +90,14 @@ class Settings(BaseSettings):
 
     @property
     def session_file(self) -> Path:
-        """会话文件与 API_ID 绑定:u_{api_id}.session;未配置 api_id 时退回 session_name。"""
-        name = f"u_{self.api_id}" if self.api_id else self.session_name
-        return Path(self.session_dir) / f"{name}.session"
+        """会话文件与 API_ID 绑定:u_{api_id}.session(无回退名)。"""
+        if not self.api_id:
+            raise McpError(
+                SESSION_INVALID,
+                "缺少 API_ID,无法确定会话文件名;请运行 `kurigram-mcp setup` 交互式配置"
+                "(写入 ~/.kurigram-mcp/config.yaml),或设置环境变量",
+            )
+        return Path(self.session_dir) / f"u_{self.api_id}.session"
 
     @property
     def downloads_dir(self) -> Path:

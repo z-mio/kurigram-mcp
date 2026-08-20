@@ -40,8 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--json-response", action="store_true", help="纯 JSON 响应,不用 SSE(部分客户端不支持)"
     )
 
-    auth_p = sub.add_parser("auth", help="交互式登录 Telegram(需先配置 API_ID/API_HASH)")
-    auth_p.add_argument("--session-name", help="会话名(覆盖 SESSION_NAME)")
+    sub.add_parser("auth", help="交互式登录 Telegram(需先配置 API_ID/API_HASH)")
 
     sub.add_parser("setup", help="交互式配置向导:生成 ~/.kurigram-mcp/config")
     return parser
@@ -58,8 +57,6 @@ def main(argv: list[str] | None = None) -> int:
         return run_setup()
 
     if args.command == "auth":
-        if args.session_name:
-            settings.session_name = args.session_name
         try:
             return asyncio.run(run_auth(settings))
         except McpError as exc:

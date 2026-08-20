@@ -120,3 +120,34 @@ def test_build_value_vector_long_mismatch_error() -> None:
         assert "to_bytes" in str(exc)
     else:
         raise AssertionError("应序列化失败")
+
+
+def test_find_large_ints() -> None:
+    """大整数检测:嵌套 dict/list 递归,2^53 阈值,排除 bool。"""
+    from kurigram_mcp.telegram.client import _find_large_ints
+
+    assert _find_large_ints({"a": 1, "b": True}) == []
+    assert _find_large_ints({"peer": {"user_id": 123, "access_hash": 2**60}}) == [
+        ("peer.access_hash", 2**60)
+    ]
+    assert _find_large_ints({"id": [-(2**63)]}) == [("id[0]", -(2**63))]
+    assert _find_large_ints({"query_id": 2**53 - 1}) == []  # 恰好安全范围内
+
+
+def test_numeric_string_coercion() -> None:
+    """纯数字字符串转 int 兜底(JS 精度丢失场景);非数字字符串不受影响。"""
+    from kurigram_mcp.telegram.client import (
+        _coerce_numeric_strings,
+        _has_numeric_strings,
+    )
+
+    assert _coerce_numeric_strings("-5882132225181774741") == -5882132225181774741
+    assert _coerce_numeric_strings("123") == 123
+    assert _coerce_numeric_strings("abc123") == "abc123"  # 非纯数字,不动
+    assert _coerce_numeric_strings("+8613800000000") == "+8613800000000"  # 带 +,不动
+    assert _coerce_numeric_strings({"id": ["1", "x"], "peer": {"hash": "-5"}}) == {
+        "id": [1, "x"],
+        "peer": {"hash": -5},
+    }
+    assert _has_numeric_strings({"peer": {"access_hash": "-5882132225181774741"}}) is True
+    assert _has_numeric_strings({"message": "纯文本"}) is False

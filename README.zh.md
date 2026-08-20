@@ -44,18 +44,16 @@ km run     # 默认 http://127.0.0.1:8765/mcp
 
 > 在 [my.telegram.org/apps](https://my.telegram.org/apps) 获取 `API_ID` / `API_HASH`。登录必须由你本人完成——凭据永远不会离开你的机器。
 
-## 🧰 工具 (22 个)
+## 🧰 工具 (34 个)
 
-| 分组    | 工具                                                                                                                                                     |
-|---------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 🧾 会话 | `whoami`、`mcp_get_server_info`                                                                                                                          |
-| 📤 发送 | `send_message`、`send_photo`、`send_document`、`edit_message`、`delete_message`、`send_chat_action`、`start_bot`、`click_inline_button`、`send_reaction` |
-| 📥 读取 | `get_chat`、`get_chat_history`、`get_messages`、`get_dialogs`、`search_messages`、`download_media`                                                       |
-| ⏱️  事件 | `wait_for_update`、`drain_updates`                                                                                                                       |
-| 🔬 深度 | `raw_invoke`、`list_raw_methods`、`get_raw_method_info`                                                                                                  |
-
-错误统一为 `[CODE] message` 格式:`NOT_WHITELISTED` · `FLOOD_WAIT {seconds}` · `SESSION_INVALID` · `RPC` · `NETWORK` ·
-`INTERNAL`。
+| 分组    | 工具                                                                                                                                                                                                                                                                         |
+|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 🧾 会话 | `whoami`、`mcp_get_server_info`                                                                                                                                                                                                                                              |
+| 📤 发送 | `send_message`、`send_photo`、`send_document`、`send_voice`、`send_sticker`、`send_media_group`、`send_poll`、`vote_poll`、`forward_message`、`edit_message`、`delete_message`、`send_chat_action`、`start_bot`、`click_inline_button`、`send_reaction`、`send_inline_query` |
+| 📥 读取 | `get_chat`、`get_chat_history`、`get_messages`、`get_dialogs`、`search_messages`、`get_chat_members_count`、`download_media`                                                                                                                                                 |
+| 👥 群   | `join_chat`、`leave_chat`                                                                                                                                                                                                                                                    |
+| ⏱️  事件 | `wait_for_update`(谓词含 `is_media` / `media_type`)、`drain_updates`                                                                                                                                                                                                         |
+| 🔬 深度 | `raw_invoke`、`list_raw_methods`、`get_raw_method_info`                                                                                                                                                                                                                      |
 
 ## 🔌 客户端接入
 

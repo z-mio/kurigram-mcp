@@ -21,7 +21,7 @@ async def run_auth(settings: Settings) -> int:
         logger.info("未找到会话,开始交互式登录(手机号 -> 验证码 -> 2FA 密码)")
 
     client = Client(
-        f"u_{settings.api_id}" if settings.api_id else settings.session_name,
+        f"u_{settings.api_id}",
         api_id=settings.api_id,
         api_hash=settings.api_hash,
         workdir=settings.session_dir,

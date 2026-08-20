@@ -134,3 +134,70 @@ def test_predicate_reply_to_and_types() -> None:
     p2 = build_predicate(chat_id=1, reply_to_message_id=8)
     p3 = build_predicate(chat_id=1, types=["edited_message"])
     assert p1(ev) and not p2(ev) and not p3(ev)
+
+
+def test_predicate_media_filters() -> None:
+    """is_media / media_type 谓词:媒体消息与文本消息应正确区分。"""
+    bus = EventBus()
+    _ev(bus, "message", 1, payload={"media": "photo", "from": {"is_bot": True}})
+    _ev(bus, "message", 1, payload={"text": "纯文本", "from": {"is_bot": True}})
+    _ev(bus, "message", 1, payload={"media": "voice", "from": {"is_bot": True}})
+    events = bus.drain(None)[1]
+
+    p_photo = build_predicate(chat_id=1, is_media=True)
+    p_photo_exact = build_predicate(chat_id=1, media_type="photo")
+    p_text = build_predicate(chat_id=1, is_media=False)
+    p_voice = build_predicate(chat_id=1, media_type="voice")
+
+    assert p_photo(events[0]) and not p_photo(events[1]) and p_photo(events[2])
+    assert p_photo_exact(events[0]) and not p_photo_exact(events[2])
+    assert not p_text(events[0]) and p_text(events[1]) and not p_text(events[2])
+    assert p_voice(events[2]) and not p_voice(events[0])
+    # media_type 匹配时不再要求 chat 内其他谓词
+    assert build_predicate(chat_id=2, media_type="photo")(events[0]) is False
+
+
+def test_predicate_text_matches_regex() -> None:
+    """正则谓词:金额/格式断言;非法正则不崩(视为不匹配)。"""
+    bus = EventBus()
+    _ev(bus, "message", 1, payload={"text": "100.0 USD美元 = 672.5761 CNY人民币", "from": {"is_bot": True}})
+    _ev(bus, "message", 1, payload={"text": "没有数字", "from": {"is_bot": True}})
+    events = bus.drain(None)[1]
+    p_amount = build_predicate(chat_id=1, text_matches=r"\d+\.\d+ CNY")
+    assert p_amount(events[0]) and not p_amount(events[1])
+    # 非 url/文本之外的事件不崩
+    assert build_predicate(chat_id=1, text_matches="(")(events[0]) is False  # 非法正则
+    assert build_predicate(chat_id=1, text_matches="USD")(events[0]) is True
+
+
+@pytest.mark.asyncio
+async def test_predicate_after_seq_skips_old_events() -> None:
+    """after_seq:连续等待时跳过 lookback 窗口内已返回过的旧事件(子会话实测踩坑场景)。
+
+    场景:第一次 wait 命中旧事件 seq=1;第二次 wait 不传 after_seq 会再次命中,
+    传 after_seq=1 则应跳过,等不到时返回 None。
+    """
+    bus = EventBus()
+    bus.push("message", 1, {"text": "旧回复", "from": {"is_bot": True}}, ts=time.time())
+
+    # 不传 after_seq:旧事件被重复命中
+    ev1 = await _wait(bus, build_predicate(chat_id=1, from_bot=True, text_contains="旧回复"))
+    assert ev1 is not None and ev1.seq == 1
+    ev2 = await _wait(bus, build_predicate(chat_id=1, from_bot=True, text_contains="旧回复"))
+    assert ev2 is not None and ev2.seq == 1  # 旧事件仍命中(问题场景)
+
+    # 传 after_seq:旧事件被跳过,等待新事件
+    bus.push("message", 1, {"text": "新回复", "from": {"is_bot": True}}, ts=time.time())
+    ev3 = await _wait(
+        bus,
+        build_predicate(chat_id=1, from_bot=True, text_contains="新回复", after_seq=1),
+    )
+    assert ev3 is not None and ev3.seq == 2
+
+    # after_seq 下旧事件不匹配
+    p = build_predicate(chat_id=1, from_bot=True, text_contains="旧回复", after_seq=1)
+    assert p(ev1) is False
+
+
+async def _wait(bus, pred, timeout: float = 2):
+    return await asyncio.wait_for(bus.wait(pred, timeout=timeout, lookback_seconds=60), 3)

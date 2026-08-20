@@ -13,9 +13,13 @@ def test_defaults(monkeypatch) -> None:
     assert s.host == "127.0.0.1"
     assert s.port == 8765
     assert s.allowed_chat_ids == ""
-    assert s.session_name == "kurigram"
-    # 未配置 API_ID 时退回默认会话名
-    assert str(s.session_file).endswith("kurigram.session")
+    # 未配置 API_ID 时无回退会话名:访问会话文件直接报错
+    try:
+        _ = s.session_file
+    except McpError as exc:
+        assert exc.code == "SESSION_INVALID"
+    else:
+        raise AssertionError("缺少 API_ID 时应抛 McpError")
     # XDG 持久化:无 .env(uvx 模式)时默认目录在用户数据目录
     s2 = Settings(_env_file=None, session_dir=default_session_dir())
     assert s2.session_dir == default_session_dir()

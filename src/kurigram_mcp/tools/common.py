@@ -54,6 +54,22 @@ def require_chat(access, chat_id: int) -> None:
         )
 
 
+async def resolve_chat_id(client, chat_id: int | str) -> int:
+    """工具参数 chat_id 统一解析为数字 id。
+
+    支持:数字 id(含群/频道负 ID)、@username(带缓存)、me/self(Saved Messages)。
+    解析失败(未知用户名等)按 Telegram 原始错误透传。
+    """
+    if isinstance(chat_id, int):
+        return chat_id
+    s = str(chat_id).strip()
+    if s.lstrip("-").isdigit():
+        return int(s)
+    from ..access import resolve_username
+
+    return await resolve_username(client.raw, s, client.me.id)
+
+
 def wrap_errors[F: Callable[..., Awaitable[Any]]](fn: F) -> F:
     """把工具抛出的异常统一转成结构化 ToolError。"""
 

@@ -20,6 +20,12 @@ def register(mcp: MCPServer) -> None:
         (如 {"_": "inputPeerEmpty"})。
         方法/类型清单见 https://core.telegram.org/methods 与 kurigram 的 pyrogram.raw 包。
 
+        peer 类型选择(高频踩坑):messages.* 系函数(如 messages.getHistory /
+        messages.sendInlineBotResult)的 peer 参数用 inputPeerChannel / inputPeerUser /
+        inputPeerSelf;channels.* 系函数(如 channels.getChannels)才用 inputChannel。
+        用错类型会报 PEER_ID_INVALID 且难排查。64 位整数(access_hash/query_id)经
+        JS 客户端传输会丢精度,失败时改用字符串传参。
+
         注意:raw 调用不做白名单或安全过滤,可执行任意操作(包括删除、修改账号设置),请谨慎使用。
         """
         state: ServerState = ctx.request_context.lifespan_context
