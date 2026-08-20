@@ -73,6 +73,48 @@ async def test_wait_lookback_finds_recent_event() -> None:
 
 
 @pytest.mark.asyncio
+async def test_wait_lookback_covers_agent_round_trip() -> None:
+    """回归:bot 同秒回复、agent 数秒后才调用 wait —— 默认 60s 窗口必须命中。
+
+    旧实现 lookback 硬编码 5s,事件年龄 30s 时直接 break → 误报超时。
+    """
+    bus = EventBus()
+    bus.push(
+        "message",
+        1,
+        {"text": "语言代码 xx 无效", "from": {"is_bot": True}, "reply_to_message_id": 11960},
+        ts=time.time() - 30,
+    )
+    ev = await bus.wait(
+        build_predicate(chat_id=1, from_bot=True, text_contains="语言代码"), timeout=2
+    )
+    assert ev is not None and ev.payload["text"] == "语言代码 xx 无效"
+
+    # 显式收窄窗口:事件滑出 → 等满 timeout 后 miss
+    ev2 = await bus.wait(
+        build_predicate(chat_id=1, from_bot=True, text_contains="语言代码"),
+        timeout=0.2,
+        lookback_seconds=5,
+    )
+    assert ev2 is None
+
+
+@pytest.mark.asyncio
+async def test_wait_lookback_scans_non_monotonic_ts() -> None:
+    """事件 ts 非单调(旧 ts 事件后入列)也不应漏扫:按年龄过滤全流而非遇旧即断。"""
+    bus = EventBus()
+    now = time.time()
+    bus.push("message", 1, {"text": "newer"}, ts=now)  # 后入列、ts 更新
+    bus.push("message", 1, {"text": "old but recent"}, ts=now - 30)  # ts 更旧
+    ev = await bus.wait(
+        build_predicate(chat_id=1, text_contains="old but recent"),
+        timeout=0.2,
+        lookback_seconds=60,
+    )
+    assert ev is not None and ev.payload["text"] == "old but recent"
+
+
+@pytest.mark.asyncio
 async def test_whitelist_filter_drops_events() -> None:
     bus = EventBus()
     bus.set_allowed_ids({1})

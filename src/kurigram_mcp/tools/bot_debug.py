@@ -51,17 +51,23 @@ def register(mcp: MCPServer) -> None:
         text_contains: str | None = None,
         types: list[str] | None = None,
         reply_to_message_id: int | None = None,
+        lookback_seconds: float = 60,
     ) -> dict:
-        """等待 chat 的新事件(默认含 5 秒 lookback,避免事件先到)。
+        """等待 chat 的新事件(默认含 60 秒 lookback,覆盖"bot 同秒回复、事件先到"的竞态;
+        LLM 客户端两次工具调用间隔常达数秒~数十秒,太小的窗口会把快回复滑出去)。
 
         谓词:from_bot(是否 bot 发送)、text_contains(文本包含)、
         types(["message","edited_message","reaction","deleted_message"])、
         reply_to_message_id(回复哪条消息)。超时返回 matched=false。
         响应延迟 = 事件 payload.date - 你发送消息的 date。
 
-        注意:bot 直接回复的消息通常没有 reply_to_message_id(Telegram 不强制引用),
+        注意 1:bot 直接回复的消息通常没有 reply_to_message_id(Telegram 不强制引用),
         用 reply_to_message_id 谓词会漏匹配导致误判"没回复";只等"bot 回了任何消息"
-        时用 from_bot=true 即可,需要精确匹配时配合 text_contains 或查历史确认。
+        时用 from_bot=true 即可。
+
+        注意 2:wait 只覆盖"调用后入队 + lookback 窗口内已入队"的事件。matched=false
+        不代表 bot 没回复——先用 get_chat_history 查证(回复一定在历史里),或按返回的
+        hint 用 drain_updates(cursor) 增量拉取,再下结论。
         """
         state: ServerState = ctx.request_context.lifespan_context
         access = await access_for(ctx, state)
@@ -70,10 +76,16 @@ def register(mcp: MCPServer) -> None:
         ev = await state.bus.wait(
             build_predicate(chat_id, from_bot, text_contains, types, reply_to_message_id),
             timeout=timeout,
+            lookback_seconds=lookback_seconds,
         )
         waited = round(time.time() - start, 2)
         if ev is None:
-            return {"matched": False, "timeout": True, "waited_seconds": waited}
+            return {
+                "matched": False,
+                "timeout": True,
+                "waited_seconds": waited,
+                "hint": f"用 get_chat_history 验证历史,或 drain_updates(cursor={state.bus.latest_seq}) 拉取后续事件",
+            }
         return {"matched": True, "waited_seconds": waited, "event": event_view(ev)}
 
     @mcp.tool()

@@ -67,13 +67,20 @@ class EventBus:
                 self._waiters.remove((fut, pred))
 
     async def wait(
-        self, predicate: Predicate, timeout: float, lookback_seconds: float = 5.0
+        self, predicate: Predicate, timeout: float, lookback_seconds: float = 60.0
     ) -> BusEvent | None:
-        """等待匹配事件;超时返回 None。lookback 窗口内已有匹配事件则立即返回。"""
+        """等待匹配事件;超时返回 None。lookback 窗口内已有匹配事件则立即返回。
+
+        lookback 必须覆盖"事件先到、wait 后注册"的竞态:bot 常在同一秒内回复,
+        而 LLM 客户端从发送消息到发出下一次 wait 调用往往间隔数秒~数十秒,
+        故默认 60s(此前 5s 太短,快回复会滑出窗口导致误报"没回复")。
+        事件 ts 可能非单调(消息用 message.date、删除/反应用接收时刻),
+        因此按年龄过滤全流,而不是"遇旧即断"。
+        """
         now = time.time()
         for ev in reversed(self._stream):
             if now - ev.ts > lookback_seconds:
-                break
+                continue
             if predicate(ev):
                 return ev
 
