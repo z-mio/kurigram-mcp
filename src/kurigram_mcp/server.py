@@ -6,6 +6,7 @@ import hmac
 import time
 from contextlib import asynccontextmanager
 
+from loguru import logger
 from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
@@ -42,6 +43,14 @@ def build_server(settings: Settings) -> MCPServer:
     async def lifespan(server: MCPServer):
         client = TelegramClient(settings)
         await client.start()
+        me = client.me
+        logger.info(
+            "账号 '{}' (api_id={}) 已连接: {} @{}",
+            settings.account_name or "default",
+            settings.api_id,
+            getattr(me, "first_name", "?"),
+            getattr(me, "username", None) or getattr(me, "id", "?"),
+        )
         access = AccessControl(settings.allowed_chat_ids, settings.strict_whitelist)
         await access.resolve(client.raw, me_id=client.me.id)
         client.bus.set_allowed_ids(access.ids())

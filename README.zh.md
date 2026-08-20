@@ -44,6 +44,37 @@ km run     # 默认 http://127.0.0.1:8765/mcp
 
 > 在 [my.telegram.org/apps](https://my.telegram.org/apps) 获取 `API_ID` / `API_HASH`。登录必须由你本人完成——凭据永远不会离开你的机器。
 
+## 👥 多账号会话
+
+有些测试场景需要多个用户同时参与(比如群内 bot 的多人交互)。每个 Telegram 用户注册一个账号,
+各账号拥有独立的会话文件、可选代理与聊天白名单:
+
+```bash
+# 1. 注册账号(凭据写入 ~/.kurigram-mcp/config.yaml)
+km session add alice --api-id 11111111 --api-hash abc... --allowed-chat-ids "-1001234567890"
+km session add bob   --api-id 22222222 --api-hash def...
+
+# 2. 逐个登录(手机号 → 验证码 → 2FA)
+km auth alice
+km auth bob
+
+# 3. 离线查看登录状态(缓存身份,无需联网)
+km session list          # 加 -v 显示 proxy/白名单详情
+
+# 4. 每个账号一个服务器进程,用不同端口同时运行
+km run --account alice --port 8765
+km run --account bob   --port 8766
+
+# 删除账号(注册条目 + .session 文件;非交互环境加 -f 跳过确认)
+km session remove bob
+```
+
+- 旧式单账号配置(顶层 `api_id`)即隐式账号 **`default`** —— 现有配置零迁移,
+  `km run` 不带 `--account` 时回退到它(或第一个注册账号)。
+- 每账号 `--allowed-chat-ids` 覆盖全局白名单;单次请求的 `X-Kurigram-Allowed-Chats` 请求头仍优先。
+- 多账号时 `km auth` 不带名字会交互式选择。
+- 工具操作的是服务器启动时指定的那个账号(`whoami` 可确认当前身份)。
+
 ## 🧰 工具 (34 个)
 
 | 分组    | 工具                                                                                                                                                                                                                                                                         |

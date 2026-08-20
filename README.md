@@ -45,6 +45,40 @@ km run     # default: http://127.0.0.1:8765/mcp
 > Get `API_ID` / `API_HASH` from [my.telegram.org/apps](https://my.telegram.org/apps). Login must be performed by you —
 > credentials never leave your machine.
 
+## 👥 Multi-Account Sessions
+
+Some test scenarios need several users in the same chat (e.g. group bots). Register one
+account per Telegram user — each account keeps its own session file, optional proxy and
+chat whitelist:
+
+```bash
+# 1. Register an account (credentials go into ~/.kurigram-mcp/config.yaml)
+km session add alice --api-id 11111111 --api-hash abc... --allowed-chat-ids "-1001234567890"
+km session add bob   --api-id 22222222 --api-hash def...
+
+# 2. Log each one in (phone → code → 2FA)
+km auth alice
+km auth bob
+
+# 3. See login status offline (cached identity, no network needed)
+km session list          # add -v for proxy/whitelist details
+
+# 4. Run one server per account — different ports for simultaneous use
+km run --account alice --port 8765
+km run --account bob   --port 8766
+
+# Remove an account (registry entry + .session file; -f skips confirmation)
+km session remove bob
+```
+
+- The legacy single-account config (`api_id` at top level) is the implicit account **`default`**
+  — existing setups keep working unchanged, and `km run` without `--account` falls back to it
+  (or to the first registered account).
+- Per-account `--allowed-chat-ids` overrides the global whitelist for that server; the
+  per-request `X-Kurigram-Allowed-Chats` header still wins for individual calls.
+- `km auth` with multiple accounts and no name shows an interactive picker.
+- Tools are bound to the account the server was started with (`whoami` shows which one).
+
 ## 🧰 Tools (34)
 
 | Group      | Tools                                                                                                                                                                                                                                                                        |
