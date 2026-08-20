@@ -184,6 +184,7 @@ def test_add_session_creates_config(home):
     s = _settings()  # 无 config
     result = add_session(s, "alice", 222, "h222", allowed_chat_ids="123")
     assert result["session_file"].endswith("u_222.session")
+    assert Path(result["session_file"]).parent.name == "sessions"  # 新布局:sessions/ 子目录
     cfg = home / "config.yaml"
     assert cfg.exists()
     assert cfg.stat().st_mode & 0o777 == 0o600
@@ -245,7 +246,8 @@ def test_add_session_requires_hash(home):
 # ---- session remove ----
 
 def test_remove_named_session_deletes_file(home):
-    session_file = home / "u_222.session"
+    session_file = home / "sessions" / "u_222.session"
+    session_file.parent.mkdir(parents=True)
     session_file.write_text("fake")
     _write_config(home, {"api_id": 111, "api_hash": "h111", "sessions": {"alice": {"name": "alice", "api_id": 222, "api_hash": "h222"}}})
     result = remove_session(_settings(), "alice", force=True)
@@ -256,8 +258,19 @@ def test_remove_named_session_deletes_file(home):
     assert data["api_id"] == 111  # 顶层不受影响
 
 
+def test_remove_deletes_legacy_session_file_too(home):
+    """旧布局(session_dir 根)残留会话文件在 remove 时一并清理。"""
+    legacy = home / "u_222.session"
+    legacy.write_text("fake")
+    _write_config(home, {"sessions": {"alice": {"name": "alice", "api_id": 222, "api_hash": "h222"}}})
+    result = remove_session(_settings(), "alice", force=True)
+    assert result["deleted_file"] is True
+    assert not legacy.exists()
+
+
 def test_remove_default_clears_top_level(home):
-    session_file = home / "u_111.session"
+    session_file = home / "sessions" / "u_111.session"
+    session_file.parent.mkdir(parents=True)
     session_file.write_text("fake")
     _write_config(home, {"api_id": 111, "api_hash": "h111", "me": {"first_name": "x"}})
     result = remove_session(_settings(), DEFAULT_ACCOUNT, force=True)
@@ -318,14 +331,53 @@ def test_list_sessions_rows(home):
         },
     )
     s = _settings()
-    (home / "u_111.session").write_text("x")
+    session_file = s.sessions_dir / "u_111.session"
+    session_file.parent.mkdir(parents=True)
+    session_file.write_text("x")
     rows = list_sessions(s)
     assert [r["name"] for r in rows] == [DEFAULT_ACCOUNT, "alice"]
     assert rows[0]["logged_in"] is True
     assert rows[0]["me"]["username"] == "me_user"
     assert rows[1]["logged_in"] is False
     assert rows[1]["session_file"].endswith("u_222.session")
+    assert "sessions" in rows[0]["session_file"]  # 新布局:sessions/ 子目录
 
 
 def test_list_sessions_empty(home):
     assert list_sessions(_settings()) == []
+
+
+# ---- 会话文件目录布局与迁移 ----
+
+def test_session_file_under_sessions_dir(home):
+    _write_config(home, {"api_id": 111, "api_hash": "h111"})
+    s = _settings()
+    assert s.session_file == home / "sessions" / "u_111.session"
+    assert s.downloads_dir == home / "downloads"  # 下载目录不动
+
+
+def test_migrate_session_file_moves_legacy(home):
+    _write_config(home, {"api_id": 111, "api_hash": "h111"})
+    legacy = home / "u_111.session"
+    legacy.write_text("fake-session")
+    s = _settings()
+    assert s.migrate_session_file() is True
+    assert not legacy.exists()
+    assert (home / "sessions" / "u_111.session").read_text() == "fake-session"
+
+
+def test_migrate_session_file_idempotent(home):
+    _write_config(home, {"api_id": 111, "api_hash": "h111"})
+    s = _settings()
+    # 新位置已存在 → 不动旧文件
+    s.sessions_dir.mkdir(parents=True)
+    (s.sessions_dir / "u_111.session").write_text("new")
+    legacy = home / "u_111.session"
+    legacy.write_text("old")
+    assert s.migrate_session_file() is False
+    assert legacy.exists()
+    assert (s.sessions_dir / "u_111.session").read_text() == "new"
+    # 都没有 → False
+    legacy.unlink()
+    (s.sessions_dir / "u_111.session").unlink()
+    assert s.migrate_session_file() is False

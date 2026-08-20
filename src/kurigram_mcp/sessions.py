@@ -52,8 +52,13 @@ def default_config_path() -> Path:
     return Path(default_config_file())
 
 
-def _session_file(session_dir: str | Path, api_id: int) -> Path:
-    return Path(session_dir) / f"u_{api_id}.session"
+def _session_file(settings: Settings, api_id: int) -> Path:
+    return settings.sessions_dir / f"u_{api_id}.session"
+
+
+def _legacy_session_file(settings: Settings, api_id: int) -> Path:
+    """旧布局:session_dir 根下的会话文件(2026-08 前)。"""
+    return Path(settings.session_dir) / f"u_{api_id}.session"
 
 
 # ---- 查询 ----
@@ -72,8 +77,8 @@ def list_sessions(settings: Settings) -> list[dict]:
                 "proxy": settings.proxy,
                 "allowed_chat_ids": settings.allowed_chat_ids,
                 "me": me,
-                "session_file": str(_session_file(settings.session_dir, settings.api_id)),
-                "logged_in": _session_file(settings.session_dir, settings.api_id).exists(),
+                "session_file": str(_session_file(settings, settings.api_id)),
+                "logged_in": _session_file(settings, settings.api_id).exists(),
             }
         )
     for entry in settings.sessions.values():
@@ -85,8 +90,8 @@ def list_sessions(settings: Settings) -> list[dict]:
                 "proxy": entry.proxy,
                 "allowed_chat_ids": entry.allowed_chat_ids,
                 "me": entry.me.model_dump() if entry.me else None,
-                "session_file": str(_session_file(settings.session_dir, entry.api_id)),
-                "logged_in": _session_file(settings.session_dir, entry.api_id).exists(),
+                "session_file": str(_session_file(settings, entry.api_id)),
+                "logged_in": _session_file(settings, entry.api_id).exists(),
             }
         )
     return rows
@@ -134,11 +139,11 @@ def add_session(
         **({"allowed_chat_ids": allowed_chat_ids} if allowed_chat_ids else {}),
     }
     save_raw(data)
-    return {"name": name, "api_id": api_id, "session_file": str(_session_file(settings.session_dir, api_id))}
+    return {"name": name, "api_id": api_id, "session_file": str(_session_file(settings, api_id))}
 
 
 def remove_session(settings: Settings, name: str, force: bool = False) -> dict:
-    """删除账号:注册表条目 + 会话文件。default 只清顶层凭据。"""
+    """删除账号:注册表条目 + 会话文件(含旧布局位置)。default 只清顶层凭据。"""
     data = load_raw()
     name = name.strip()
 
@@ -146,7 +151,7 @@ def remove_session(settings: Settings, name: str, force: bool = False) -> dict:
         if not settings.api_id:
             raise McpError(ACCOUNT_NOT_FOUND, f"账号 '{DEFAULT_ACCOUNT}' 未配置,无需删除")
         api_id = settings.api_id
-        target = _session_file(settings.session_dir, api_id)
+        target = _session_file(settings, api_id)
         _confirm_or_force(name, target, force)
         data.pop("api_id", None)
         data.pop("api_hash", None)
@@ -157,7 +162,7 @@ def remove_session(settings: Settings, name: str, force: bool = False) -> dict:
         if not entry or not isinstance(entry, dict):
             raise McpError(ACCOUNT_NOT_FOUND, f"账号 '{name}' 不存在;运行 `kurigram-mcp session list` 查看")
         api_id = entry.get("api_id")
-        target = _session_file(settings.session_dir, api_id) if isinstance(api_id, int) else None
+        target = _session_file(settings, api_id) if isinstance(api_id, int) else None
         _confirm_or_force(name, target, force)
         sessions.pop(name, None)
         data["sessions"] = sessions
@@ -167,6 +172,12 @@ def remove_session(settings: Settings, name: str, force: bool = False) -> dict:
     if target and target.exists():
         target.unlink()
         deleted_file = True
+    # 旧布局(session_dir 根)残留文件一并清理
+    if isinstance(api_id, int):
+        legacy = _legacy_session_file(settings, api_id)
+        if legacy.exists():
+            legacy.unlink()
+            deleted_file = True
     logger.info("已删除账号 '{}' (api_id={}) 会话文件删除={}", name, api_id, deleted_file)
     return {"name": name, "api_id": api_id, "session_file": str(target), "deleted_file": deleted_file}
 

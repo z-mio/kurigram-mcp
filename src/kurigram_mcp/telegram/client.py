@@ -95,7 +95,6 @@ class TelegramClient:
     def _client_name(self) -> str:
         """pyrogram Client 名 = 会话文件名(与 session_file 保持一致)。"""
         return f"u_{self.settings.api_id}"
-
     @property
     def raw(self) -> Client:
         if self._client is None:
@@ -108,6 +107,7 @@ class TelegramClient:
 
     async def start(self) -> None:
         """连接并校验会话;会话文件缺失时明确报错,绝不静默进入交互式登录。"""
+        self.settings.migrate_session_file()  # 旧位置(session_dir 根)自动迁移到 sessions/
         if not self.session_file.exists():
             raise McpError(
                 SESSION_INVALID,
@@ -119,7 +119,7 @@ class TelegramClient:
             self._client_name(),
             api_id=self.settings.api_id,
             api_hash=self.settings.api_hash,
-            workdir=self.settings.session_dir,
+            workdir=self.settings.sessions_dir,  # 会话文件位于 sessions/ 子目录
             proxy=parse_proxy(self.settings.proxy),
         )
         try:

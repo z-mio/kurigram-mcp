@@ -147,8 +147,8 @@ proxy: ""                           # optional, e.g. socks5://127.0.0.1:1080
 ```
 ~/.kurigram-mcp/
 ├── config.yaml         # setup-generated config (chmod 600)
-├── u_{API_ID}.session  # Telegram session (bound to API_ID, persists)
-└── downloads/          # download_media output
+├── sessions/           # Telegram session files: u_{API_ID}.session (one per account)
+├── downloads/          # download_media output
 ```
 
 ## 🧑‍💻 Development

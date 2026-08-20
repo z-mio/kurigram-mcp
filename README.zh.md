@@ -140,7 +140,7 @@ proxy: ""                           # 可选,如 socks5://127.0.0.1:1080
 ```
 ~/.kurigram-mcp/
 ├── config.yaml         # setup 生成的配置(权限 600)
-├── u_{API_ID}.session  # Telegram 会话(与 API_ID 绑定,登录一次永久有效)
+├── sessions/           # Telegram 会话文件:u_{API_ID}.session(每账号一个)
 └── downloads/          # download_media 落盘目录
 ```
 

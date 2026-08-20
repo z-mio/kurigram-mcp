@@ -17,6 +17,7 @@ from .telegram.client import parse_proxy
 async def run_auth(settings: Settings) -> int:
     settings.require_credentials()
     settings.ensure_dirs()
+    settings.migrate_session_file()  # 旧位置(session_dir 根)自动迁移到 sessions/
 
     session_file = settings.session_file
     if session_file.exists():
@@ -28,7 +29,7 @@ async def run_auth(settings: Settings) -> int:
         f"u_{settings.api_id}",
         api_id=settings.api_id,
         api_hash=settings.api_hash,
-        workdir=settings.session_dir,
+        workdir=settings.sessions_dir,  # 会话文件位于 sessions/ 子目录
         proxy=parse_proxy(settings.proxy),
     )
     try:
