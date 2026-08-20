@@ -1,4 +1,8 @@
-"""Bot 调试工具:事件等待、事件流、启动 bot。"""
+"""Bot 调试工具:事件等待、事件流、启动 bot。
+
+所有工具支持 account 参数:指定操作账号(缺省用服务器默认账号);
+事件总线按账号隔离,wait/expect_silent/drain 只看到该账号的事件。
+"""
 
 from __future__ import annotations
 
@@ -92,6 +96,7 @@ def register(mcp: MCPServer) -> None:
         media_type: str | None = None,
         after_seq: int | None = None,
         lookback_seconds: float = 60,
+        account: str | None = None,
     ) -> dict:
         """等待 chat 的新事件(默认含 60 秒 lookback,覆盖"bot 同秒回复、事件先到"的竞态;
         LLM 客户端两次工具调用间隔常达数秒~数十秒,太小的窗口会把快回复滑出去)。
@@ -119,11 +124,12 @@ def register(mcp: MCPServer) -> None:
         hint 用 drain_updates(cursor) 增量拉取,再下结论。
         """
         state: ServerState = ctx.request_context.lifespan_context
-        access = await access_for(ctx, state)
-        chat_id = await resolve_chat_id(state.client, chat_id)
+        client = state.resolve(account)
+        access = await access_for(ctx, state, account)
+        chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         start = time.time()
-        ev = await state.bus.wait(
+        ev = await client.bus.wait(
             build_predicate(
                 chat_id,
                 from_bot,
@@ -144,7 +150,7 @@ def register(mcp: MCPServer) -> None:
                 "matched": False,
                 "timeout": True,
                 "waited_seconds": waited,
-                "hint": f"用 get_chat_history 验证历史,或 drain_updates(cursor={state.bus.latest_seq}) 拉取后续事件",
+                "hint": f"用 get_chat_history 验证历史,或 drain_updates(cursor={client.bus.latest_seq}) 拉取后续事件",
             }
         return {"matched": True, "waited_seconds": waited, "event": event_view(ev)}
 
@@ -158,6 +164,7 @@ def register(mcp: MCPServer) -> None:
         types: list[str] | None = None,
         text_contains: str | None = None,
         text_matches: str | None = None,
+        account: str | None = None,
     ) -> dict:
         """静默断言:等待 duration 秒,期间是否出现匹配事件(默认只看调用后的事件,不看历史)。
 
@@ -169,16 +176,17 @@ def register(mcp: MCPServer) -> None:
         返回 {silent, duration_seconds, count, events}。
         """
         state: ServerState = ctx.request_context.lifespan_context
-        access = await access_for(ctx, state)
-        chat_id = await resolve_chat_id(state.client, chat_id)
+        client = state.resolve(account)
+        access = await access_for(ctx, state, account)
+        chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
-        start_seq = state.bus.latest_seq
+        start_seq = client.bus.latest_seq
         start = time.time()
         await asyncio.sleep(duration)
         pred = build_predicate(
             chat_id, from_bot, text_contains, text_matches, types
         )
-        _, events = state.bus.drain(start_seq, chat_id=chat_id)
+        _, events = client.bus.drain(start_seq, chat_id=chat_id)
         matched = [e for e in events if pred(e)]
         return {
             "silent": len(matched) == 0,
@@ -194,14 +202,16 @@ def register(mcp: MCPServer) -> None:
         cursor: int | None = None,
         chat_id: int | str | None = None,
         limit: int = 100,
+        account: str | None = None,
     ) -> dict:
         """从光标处拉取事件流。cursor 单调递增:把返回的 cursor 传给下次调用即可增量拉取。chat_id 支持数字/@username/me(可从 get_dialogs 获取)。"""
         state: ServerState = ctx.request_context.lifespan_context
+        client = state.resolve(account)
         if chat_id is not None:
-            access = await access_for(ctx, state)
-            chat_id = await resolve_chat_id(state.client, chat_id)
+            access = await access_for(ctx, state, account)
+            chat_id = await resolve_chat_id(client, chat_id)
             require_chat(access, chat_id)
-        new_cursor, events = state.bus.drain(cursor, chat_id=chat_id, limit=limit)
+        new_cursor, events = client.bus.drain(cursor, chat_id=chat_id, limit=limit)
         return {
             "cursor": new_cursor,
             "count": len(events),
@@ -210,33 +220,44 @@ def register(mcp: MCPServer) -> None:
 
     @mcp.tool()
     @wrap_errors
-    async def start_bot(ctx: Context, bot_username: str, param: str = "") -> dict:
+    async def start_bot(
+        ctx: Context, bot_username: str, param: str = "", account: str | None = None
+    ) -> dict:
         """向 bot 发送 /start,触发 bot 的 start 流程。param 为 Telegram 深链 start 参数(等价于 "/start 后跟的 payload",如 param="menu" 对应 /start menu),不体现在消息文本中。返回的是你发出的 /start 消息(不是 bot 的回复);bot 的回复请用 wait_for_update(from_bot=true) 或 get_chat_history 查看。需 bot 在白名单。"""
         state: ServerState = ctx.request_context.lifespan_context
-        chat = await state.client.raw.get_chat(bot_username)
-        access = await access_for(ctx, state)
+        client = state.resolve(account)
+        chat = await client.raw.get_chat(bot_username)
+        access = await access_for(ctx, state, account)
         require_chat(access, chat.id)
-        return await state.client.start_bot(bot_username, param=param)
+        return await client.start_bot(bot_username, param=param)
 
     @mcp.tool()
     @wrap_errors
     async def send_inline_query(
-        ctx: Context, bot_username: str, query: str = "", offset: str = ""
+        ctx: Context,
+        bot_username: str,
+        query: str = "",
+        offset: str = "",
+        account: str | None = None,
     ) -> dict:
         """向 bot 发起 inline 查询(模拟用户在输入框输入 @bot query),返回 bot 的答案。
 
         Telegram 要求 bot 开启 inline mode;bot 10 秒不应答返回 timeout=true。
         bot 需在白名单。"""
         state: ServerState = ctx.request_context.lifespan_context
-        chat = await state.client.raw.get_chat(bot_username)
-        access = await access_for(ctx, state)
+        client = state.resolve(account)
+        chat = await client.raw.get_chat(bot_username)
+        access = await access_for(ctx, state, account)
         require_chat(access, chat.id)
-        return await state.client.send_inline_query(bot_username, query=query, offset=offset)
+        return await client.send_inline_query(bot_username, query=query, offset=offset)
 
     @mcp.tool()
     @wrap_errors
     async def probe_bot(
-        ctx: Context, bot_username: str, wait_per_command: float = 2.0
+        ctx: Context,
+        bot_username: str,
+        wait_per_command: float = 2.0,
+        account: str | None = None,
     ) -> dict:
         """探测 bot 能力画像(新 bot 接入测试的前置冒烟)。
 
@@ -246,29 +267,30 @@ def register(mcp: MCPServer) -> None:
         只读 + 3 条命令交互;bot 需在白名单。
         """
         state: ServerState = ctx.request_context.lifespan_context
-        chat = await state.client.raw.get_chat(bot_username)
-        access = await access_for(ctx, state)
+        client = state.resolve(account)
+        chat = await client.raw.get_chat(bot_username)
+        access = await access_for(ctx, state, account)
         require_chat(access, chat.id)
-        meta = await state.client.bot_meta(bot_username)
-        start_seq = state.bus.latest_seq
+        meta = await client.bot_meta(bot_username)
+        start_seq = client.bus.latest_seq
 
         cmds: list[str] = []
         try:
-            await state.client.start_bot(bot_username)
+            await client.start_bot(bot_username)
             cmds.append("/start")
         except Exception as exc:  # noqa: BLE001 - 单个命令失败继续探测
             logger.warning("probe_bot /start 失败: {}", exc)
         await asyncio.sleep(wait_per_command)
         for cmd in ("/help", "/menu"):
             try:
-                await state.client.send_message(chat.id, cmd)
+                await client.send_message(chat.id, cmd)
                 cmds.append(cmd)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("probe_bot {} 失败: {}", cmd, exc)
             await asyncio.sleep(wait_per_command)
 
         # 收集 bot 回复:事件总线优先,历史兜底
-        _, events = state.bus.drain(start_seq, chat_id=chat.id)
+        _, events = client.bus.drain(start_seq, chat_id=chat.id)
         replies = [
             e.payload
             for e in events
@@ -276,7 +298,7 @@ def register(mcp: MCPServer) -> None:
         ]
         attribution = "event_bus"
         if not replies and cmds:
-            hist = await state.client.get_chat_history(chat.id, limit=20)
+            hist = await client.get_chat_history(chat.id, limit=20)
             replies = [
                 m
                 for m in hist["messages"]
@@ -300,7 +322,7 @@ def register(mcp: MCPServer) -> None:
         return {
             "bot_username": bot_username,
             "chat_id": chat.id,
-            "profile": await state.client.get_chat(chat.id),
+            "profile": await client.get_chat(chat.id),
             **meta,
             "commands_sent": cmds,
             "replies": out,

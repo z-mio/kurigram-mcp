@@ -11,7 +11,12 @@ from .common import ServerState, wrap_errors
 def register(mcp: MCPServer) -> None:
     @mcp.tool()
     @wrap_errors
-    async def raw_invoke(ctx: Context, function: str, params: dict | None = None) -> dict:
+    async def raw_invoke(
+        ctx: Context,
+        function: str,
+        params: dict | None = None,
+        account: str | None = None,
+    ) -> dict:
         """直接调用 Telegram MTProto 原始函数(深度调试兜底)。
 
         函数名:Telegram API 的 snake 路径,如 messages.getHistory / help.getConfig /
@@ -25,11 +30,13 @@ def register(mcp: MCPServer) -> None:
         inputPeerSelf;channels.* 系函数(如 channels.getChannels)才用 inputChannel。
         用错类型会报 PEER_ID_INVALID 且难排查。64 位整数(access_hash/query_id)经
         JS 客户端传输会丢精度,失败时改用字符串传参。
+        account:操作账号(缺省默认账号)。
 
         注意:raw 调用不做白名单或安全过滤,可执行任意操作(包括删除、修改账号设置),请谨慎使用。
         """
         state: ServerState = ctx.request_context.lifespan_context
-        return await state.client.raw_invoke(function, params or {})
+        client = state.resolve(account)
+        return await client.raw_invoke(function, params or {})
 
     @mcp.tool()
     @wrap_errors

@@ -14,6 +14,7 @@ from mcp.server.mcpserver import MCPServer
 from . import __version__
 from .access import AccessControl
 from .config import Settings
+from .errors import ACCOUNT_NOT_FOUND, McpError
 from .telegram.client import TelegramClient
 from .tools import ServerState, register_tools
 
@@ -38,27 +39,50 @@ def _auth_settings() -> AuthSettings | None:
     )
 
 
-def build_server(settings: Settings) -> MCPServer:
+def build_server(settings: Settings, accounts: list[str] | None = None) -> MCPServer:
+    """accounts 为 None 时启动全部已注册账号;否则只启动指定账号列表。"""
+
     @asynccontextmanager
     async def lifespan(server: MCPServer):
-        client = TelegramClient(settings)
-        await client.start()
-        me = client.me
-        logger.info(
-            "账号 '{}' (api_id={}) 已连接: {} @{}",
-            settings.account_name or "default",
-            settings.api_id,
-            getattr(me, "first_name", "?"),
-            getattr(me, "username", None) or getattr(me, "id", "?"),
-        )
-        access = AccessControl(settings.allowed_chat_ids, settings.strict_whitelist)
-        await access.resolve(client.raw, me_id=client.me.id)
-        client.bus.set_allowed_ids(access.ids())
-        state = ServerState(client=client, access=access, started_at=time.monotonic())
+        names = settings.account_names() if accounts is None else accounts
+        clients: dict[str, TelegramClient] = {}
+        accesses: dict[str, AccessControl] = {}
+        for name in names:
+            acc_settings = settings.resolve_account(name)
+            client = TelegramClient(acc_settings)
+            try:
+                await client.start()
+            except McpError as exc:
+                logger.warning("账号 '{}' 启动失败,跳过: {}", name, exc.message)
+                continue
+            access = AccessControl(acc_settings.allowed_chat_ids, acc_settings.strict_whitelist)
+            await access.resolve(client.raw, me_id=client.me.id)
+            client.bus.set_allowed_ids(access.ids())
+            me = client.me
+            logger.info(
+                "账号 '{}' (api_id={}) 已连接: {} @{}",
+                name,
+                acc_settings.api_id,
+                getattr(me, "first_name", "?"),
+                getattr(me, "username", None) or getattr(me, "id", "?"),
+            )
+            clients[name] = client
+            accesses[name] = access
+        if not clients:
+            raise McpError(
+                ACCOUNT_NOT_FOUND,
+                "没有可用的已登录账号;请先运行 `kurigram-mcp auth <name>` 完成登录",
+            )
+        default = names[0] if names[0] in clients else next(iter(clients))
+        state = ServerState(clients=clients, accesses=accesses, default=default, started_at=time.monotonic())
         try:
             yield state
         finally:
-            await client.stop()
+            for client in clients.values():
+                try:
+                    await client.stop()
+                except Exception as exc:  # noqa: BLE001 - 停止失败不影响退出
+                    logger.debug("关闭账号客户端时出错: {}", exc)
 
     kwargs: dict = {"lifespan": lifespan}
     if settings.auth_token:
@@ -76,8 +100,8 @@ def build_server(settings: Settings) -> MCPServer:
     return mcp
 
 
-def run_server(settings: Settings, **overrides) -> None:
-    mcp = build_server(settings)
+def run_server(settings: Settings, accounts: list[str] | None = None, **overrides) -> None:
+    mcp = build_server(settings, accounts)
     mcp.run(
         transport="streamable-http",
         host=overrides.get("host", settings.host),

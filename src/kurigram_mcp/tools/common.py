@@ -4,44 +4,85 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from ..access import AccessControl
-from ..errors import NOT_WHITELISTED, McpError, to_mcp_error
+from ..errors import ACCOUNT_NOT_FOUND, NOT_WHITELISTED, McpError, to_mcp_error
 from ..telegram.client import TelegramClient
 
 
 @dataclass
 class ServerState:
-    """lifespan 中构建、工具共享的运行时状态。"""
+    """lifespan 中构建、工具共享的运行时状态(单服务器多账号)。
 
-    client: TelegramClient
-    access: AccessControl
-    started_at: float
+    clients/accesses 按账号名索引;default 为缺省账号
+    (旧式顶层配置的 "default",或首个成功连接的注册账号)。
+    """
+
+    clients: dict[str, TelegramClient] = field(default_factory=dict)
+    accesses: dict[str, AccessControl] = field(default_factory=dict)
+    default: str = ""
+    started_at: float = 0.0
+
+    @property
+    def client(self) -> TelegramClient:
+        """缺省账号客户端(向后兼容:旧调用不传 account)。"""
+        return self.clients[self.default]
+
+    @property
+    def access(self) -> AccessControl:
+        """缺省账号白名单(向后兼容)。"""
+        return self.accesses[self.default]
 
     @property
     def bus(self):
-        """事件总线(client 所有)。"""
+        """缺省账号事件总线(向后兼容)。"""
         return self.client.bus
+
+    def resolve(self, account: str | None) -> TelegramClient:
+        """按账号名取客户端;None 用缺省账号。账号未连接时给出明确错误。"""
+        if not account:
+            return self.client
+        client = self.clients.get(account)
+        if client is None:
+            raise McpError(
+                ACCOUNT_NOT_FOUND,
+                f"账号 '{account}' 不可用(未注册或未登录);当前已连接: "
+                + (", ".join(self.clients) if self.clients else "无"),
+            )
+        return client
+
+    def resolve_access(self, account: str | None) -> AccessControl:
+        if not account:
+            return self.access
+        access = self.accesses.get(account)
+        if access is None:
+            raise McpError(
+                ACCOUNT_NOT_FOUND,
+                f"账号 '{account}' 不可用(未注册或未登录);当前已连接: "
+                + (", ".join(self.accesses) if self.accesses else "无"),
+            )
+        return access
 
 
 ALLOWED_CHATS_HEADER = "x-kurigram-allowed-chats"
 
 
-async def access_for(ctx, state: ServerState):
-    """per-request 白名单:请求头 X-Kurigram-Allowed-Chats 优先,否则用基础配置。
+async def access_for(ctx, state: ServerState, account: str | None = None) -> AccessControl:
+    """per-request 白名单:请求头 X-Kurigram-Allowed-Chats 优先,否则用该账号基础配置。
 
     纯请求头模式:客户端在每个请求头里声明自己的白名单(逗号分隔的数字 id /
-    @username / me);未提供时回退服务器配置,保持向后兼容。
+    @username / me);未提供时回退账号配置,保持向后兼容。
     """
+    client = state.resolve(account)
     request = getattr(ctx.request_context, "request", None)
     header = request.headers.get(ALLOWED_CHATS_HEADER) if request is not None else None
     if header:
         from ..access import AccessControl
 
-        return await AccessControl.from_header(header, state.client.raw, state.client.me.id)
-    return state.access
+        return await AccessControl.from_header(header, client.raw, client.me.id)
+    return state.resolve_access(account)
 
 
 def require_chat(access, chat_id: int) -> None:

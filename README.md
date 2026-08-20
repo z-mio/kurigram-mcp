@@ -49,10 +49,11 @@ km run     # default: http://127.0.0.1:8765/mcp
 
 Some test scenarios need several users in the same chat (e.g. group bots). Register one
 account per Telegram user — each account keeps its own session file, optional proxy and
-chat whitelist:
+chat whitelist — then **all accounts live in one server**, and every tool takes an
+`account` parameter:
 
 ```bash
-# 1. Register an account (credentials go into ~/.kurigram-mcp/config.yaml)
+# 1. Register accounts (credentials go into ~/.kurigram-mcp/config.yaml)
 km session add alice --api-id 11111111 --api-hash abc... --allowed-chat-ids "-1001234567890"
 km session add bob   --api-id 22222222 --api-hash def...
 
@@ -63,21 +64,22 @@ km auth bob
 # 3. See login status offline (cached identity, no network needed)
 km session list          # add -v for proxy/whitelist details
 
-# 4. Run one server per account — different ports for simultaneous use
-km run --account alice --port 8765
-km run --account bob   --port 8766
-
-# Remove an account (registry entry + .session file; -f skips confirmation)
-km session remove bob
+# 4. Start ONE server — all logged-in accounts connect together
+km run                   # every tool now accepts account="alice" / account="bob"
 ```
 
+- Every tool (send, read, events, raw, `whoami`) accepts `account: <name>` — omit it to use
+  the default account. Example: `send_message(account="alice")` → `wait_for_update(account="alice")`.
+- Event buses are per-account: `wait_for_update` / `expect_silent` / `drain_updates` only see
+  that account's events — ideal for orchestrating alice/bob/bot interactions in one flow.
+- `km run --account alice` starts a single-account server (isolation mode); un-logged-in
+  accounts are skipped with a warning.
 - The legacy single-account config (`api_id` at top level) is the implicit account **`default`**
-  — existing setups keep working unchanged, and `km run` without `--account` falls back to it
-  (or to the first registered account).
-- Per-account `--allowed-chat-ids` overrides the global whitelist for that server; the
+  — existing setups keep working unchanged.
+- Per-account `--allowed-chat-ids` overrides the global whitelist for that account; the
   per-request `X-Kurigram-Allowed-Chats` header still wins for individual calls.
-- `km auth` with multiple accounts and no name shows an interactive picker.
-- Tools are bound to the account the server was started with (`whoami` shows which one).
+- `km auth` with multiple accounts and no name shows an interactive picker;
+  `mcp_get_server_info` lists all connected accounts.
 
 ## 🧰 Tools (34)
 

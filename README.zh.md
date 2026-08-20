@@ -47,7 +47,8 @@ km run     # 默认 http://127.0.0.1:8765/mcp
 ## 👥 多账号会话
 
 有些测试场景需要多个用户同时参与(比如群内 bot 的多人交互)。每个 Telegram 用户注册一个账号,
-各账号拥有独立的会话文件、可选代理与聊天白名单:
+各账号拥有独立的会话文件、可选代理与聊天白名单 —— **所有账号在一个服务器里,每个工具带
+`account` 参数**:
 
 ```bash
 # 1. 注册账号(凭据写入 ~/.kurigram-mcp/config.yaml)
@@ -61,19 +62,17 @@ km auth bob
 # 3. 离线查看登录状态(缓存身份,无需联网)
 km session list          # 加 -v 显示 proxy/白名单详情
 
-# 4. 每个账号一个服务器进程,用不同端口同时运行
-km run --account alice --port 8765
-km run --account bob   --port 8766
-
-# 删除账号(注册条目 + .session 文件;非交互环境加 -f 跳过确认)
-km session remove bob
+# 4. 只启动一个服务器 —— 所有已登录账号一起连上
+km run                   # 之后每个工具都可传 account="alice" / account="bob"
 ```
 
-- 旧式单账号配置(顶层 `api_id`)即隐式账号 **`default`** —— 现有配置零迁移,
-  `km run` 不带 `--account` 时回退到它(或第一个注册账号)。
+- 所有工具(发送/读取/事件/raw/`whoami`)都接受 `account: <名字>` 参数;省略则用默认账号。
+  例:`send_message(account="alice")` → `wait_for_update(account="alice")` 接龙编排多用户场景。
+- 事件总线按账号隔离:`wait_for_update` / `expect_silent` / `drain_updates` 只看到该账号的事件。
+- `km run --account alice` 可启动单账号服务器(隔离模式);未登录的账号启动时警告跳过。
+- 旧式单账号配置(顶层 `api_id`)即隐式账号 **`default`** —— 现有配置零迁移。
 - 每账号 `--allowed-chat-ids` 覆盖全局白名单;单次请求的 `X-Kurigram-Allowed-Chats` 请求头仍优先。
-- 多账号时 `km auth` 不带名字会交互式选择。
-- 工具操作的是服务器启动时指定的那个账号(`whoami` 可确认当前身份)。
+- 多账号时 `km auth` 不带名字会交互式选择;`mcp_get_server_info` 列出所有已连接账号。
 
 ## 🧰 工具 (34 个)
 

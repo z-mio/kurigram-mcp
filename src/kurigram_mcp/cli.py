@@ -11,7 +11,7 @@ from loguru import logger
 from . import __version__
 from .auth import run_auth
 from .config import Settings
-from .errors import McpError
+from .errors import ACCOUNT_NOT_FOUND, McpError
 from .server import run_server
 from .setup import run_setup
 
@@ -35,7 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command")
 
     run_p = sub.add_parser("run", help="启动 MCP 服务器(默认命令)")
-    run_p.add_argument("--account", help="使用指定账号(见 `session list`;默认 default 或首个注册账号)")
+    run_p.add_argument("--account", help="只启动指定账号(缺省:启动全部已注册账号;见 `session list`)")
     run_p.add_argument("--host", help="监听地址(默认取 HOST,127.0.0.1)")
     run_p.add_argument("--port", type=int, help="监听端口(默认取 PORT,8765)")
     run_p.add_argument("--path", default="/mcp", help="Streamable HTTP 端点路径(默认 /mcp)")
@@ -79,7 +79,7 @@ def _resolve(settings: Settings, name: str | None) -> Settings:
         return settings.resolve_account(names[0])
     if not names:
         raise McpError(
-            "ACCOUNT_NOT_FOUND",
+            ACCOUNT_NOT_FOUND,
             "未配置任何账号;运行 `kurigram-mcp setup` 或 `kurigram-mcp session add`",
         )
     print("可用账号:")
@@ -91,7 +91,7 @@ def _resolve(settings: Settings, name: str | None) -> Settings:
         if not 1 <= idx <= len(names):
             raise ValueError
     except ValueError:
-        raise McpError("ACCOUNT_NOT_FOUND", f"无效选择: {choice!r}") from None
+        raise McpError(ACCOUNT_NOT_FOUND, f"无效选择: {choice!r}") from None
     return settings.resolve_account(names[idx - 1])
 
 
@@ -194,25 +194,28 @@ def main(argv: list[str] | None = None) -> int:
     if getattr(args, "json_response", False):
         overrides["json_response"] = True
 
+    # --account 指定单账号(保留隔离模式);缺省启动全部已注册账号
+    accounts: list[str] | None = None
     try:
-        account = settings.resolve_account(getattr(args, "account", None))
+        if getattr(args, "account", None):
+            account = settings.resolve_account(args.account)
+            if not account.session_file.exists():
+                logger.error(
+                    "账号 '{}' 未登录:未找到会话文件 {};请先运行 `kurigram-mcp auth {}`",
+                    account.account_name,
+                    account.session_file,
+                    account.account_name,
+                )
+                return 1
+            accounts = [account.account_name]
     except McpError as exc:
         logger.error(exc.message)
         return 1
-    if not account.session_file.exists():
-        logger.error(
-            "账号 '{}' 未登录:未找到会话文件 {};请先运行 `kurigram-mcp auth {}`",
-            account.account_name,
-            account.session_file,
-            account.account_name,
-        )
-        return 1
 
     logger.info(
-        "kurigram-mcp v{} 启动中 (账号={} api_id={} transport=streamable-http)",
+        "kurigram-mcp v{} 启动中 (accounts={} transport=streamable-http)",
         __version__,
-        account.account_name,
-        account.api_id,
+        ",".join(accounts) if accounts else "全部已注册",
     )
-    run_server(account, **overrides)
+    run_server(settings, accounts=accounts, **overrides)
     return 0

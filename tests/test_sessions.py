@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import types
 from pathlib import Path
 
 import pytest
@@ -34,6 +35,47 @@ def _write_config(home: Path, data: dict) -> Path:
 def _settings() -> Settings:
     # 必须等 env(KURIGRAM_MCP_HOME)与 config.yaml 就绪后再构造
     return Settings()
+
+
+# ---- ServerState 多账号解析 ----
+
+def _fake_client(name: str):
+    return types.SimpleNamespace(settings=types.SimpleNamespace(account_name=name), name=name)
+
+
+def test_server_state_resolve_accounts():
+    from kurigram_mcp.tools.common import ServerState
+
+    state = ServerState(
+        clients={"default": _fake_client("default"), "alice": _fake_client("alice")},
+        accesses={},
+        default="default",
+        started_at=0,
+    )
+    # 缺省 = default
+    assert state.resolve(None).name == "default"
+    assert state.client.name == "default"
+    # 具名
+    assert state.resolve("alice").name == "alice"
+    # 未知账号
+    with pytest.raises(McpError) as ei:
+        state.resolve("nobody")
+    assert ei.value.code == ACCOUNT_NOT_FOUND
+    with pytest.raises(McpError) as ei:
+        state.resolve_access("nobody")
+    assert ei.value.code == ACCOUNT_NOT_FOUND
+
+
+def test_server_state_default_falls_to_first():
+    from kurigram_mcp.tools.common import ServerState
+
+    state = ServerState(
+        clients={"alice": _fake_client("alice")},
+        accesses={},
+        default="alice",
+        started_at=0,
+    )
+    assert state.resolve(None).name == "alice"
 
 
 # ---- 注册表基础 ----
