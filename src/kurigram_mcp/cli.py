@@ -50,6 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     auth_p.add_argument("name", nargs="?", help="账号名(缺省时:单账号直接使用,多账号交互选择)")
 
     session_p = sub.add_parser("session", help="会话(账号)管理:add / list / remove")
+    session_p.add_argument("-v", "--verbose", action="store_true", help="list 时显示 proxy/白名单/登录时间等详情")
     session_sub = session_p.add_subparsers(dest="session_command")
 
     add_p = session_sub.add_parser("add", help="注册新账号(凭据写入 config.yaml,尚未登录)")
@@ -142,22 +143,42 @@ def _cmd_session(settings: Settings, args: argparse.Namespace) -> int:
     if not rows:
         logger.warning("未配置任何账号;运行 `kurigram-mcp setup` 或 `kurigram-mcp session add`")
         return 0
-    header = f"{'账号':<12} {'API_ID':<12} {'登录状态':<32} 会话文件"
-    print(header)
-    print("-" * len(header))
+
+    data_rows = []
     for r in rows:
         me = r["me"] or {}
         if r["logged_in"]:
             who = me.get("username")
             identity = f"{me.get('first_name', '?')} (@{who})" if who else me.get("first_name", "?")
-            status = f"✓ {identity} dc={me.get('dc', '?')} {me.get('last_login', '')}"
+            status = f"✓ {identity} dc={me.get('dc', '?')}"
+            if getattr(args, "verbose", False) and me.get("last_login"):
+                status += f" 登录于 {me['last_login']}"
         else:
-            status = "✗ 未登录(运行 km auth {})".format(r["name"])
+            status = "✗ 未登录"
         extras = ""
         if getattr(args, "verbose", False):
-            extras = f" proxy={r['proxy'] or '-'} whitelist={r['allowed_chat_ids'] or '(全局)'}"
-        print(f"{r['name']:<12} {r['api_id']:<12} {status:<32} {r['session_file']}{extras}")
+            extras = f"  proxy={r['proxy'] or '-'}  whitelist={r['allowed_chat_ids'] or '(全局)'}"
+        data_rows.append((r["name"], str(r["api_id"]), status, extras))
+
+    name_w = max([_disp_width("账号")] + [_disp_width(x[0]) for x in data_rows])
+    api_w = max([_disp_width("API_ID")] + [_disp_width(x[1]) for x in data_rows])
+    st_w = max([_disp_width("登录状态")] + [_disp_width(x[2]) for x in data_rows])
+
+    print(f"{_pad('账号', name_w)} {_pad('API_ID', api_w)} {_pad('登录状态', st_w)}")
+    print("-" * (name_w + api_w + st_w + 2))
+    for name, api_id, status, extras in data_rows:
+        print(f"{_pad(name, name_w)} {_pad(api_id, api_w)} {_pad(status, st_w)}{extras}")
     return 0
+
+
+def _disp_width(s: str) -> int:
+    """终端显示宽度:CJK 等宽字符按 2 列计。"""
+    return sum(2 if ord(ch) > 0x7F else 1 for ch in s)
+
+
+def _pad(s: str, width: int) -> str:
+    """按终端显示宽度右补空格。"""
+    return s + " " * max(0, width - _disp_width(s))
 
 
 def main(argv: list[str] | None = None) -> int:
