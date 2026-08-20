@@ -31,7 +31,7 @@ def register(mcp: MCPServer) -> None:
         """发送文本消息。parse_mode: none | markdown | html(如 <b>粗体</b>、<tg-spoiler>剧透</tg-spoiler>、<i>斜体</i>)。仅文本;发送投票请用 send_poll(返回里的 poll 字段仅投票消息才有)。account:操作账号(缺省默认账号,下同)。"""
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         return await client.send_message(
@@ -52,7 +52,7 @@ def register(mcp: MCPServer) -> None:
         """发送图片。media:本地路径(服务器侧可访问)| Telegram file_id | http(s) URL;媒体类型按扩展名自动识别(图片→photo)。caption 会出现在返回的 text 字段。parse_mode: none | markdown | html(作用于 caption)。"""
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         return await client.send_photo(
@@ -74,7 +74,7 @@ def register(mcp: MCPServer) -> None:
         """发送文件。media:本地路径(服务器侧可访问)| Telegram file_id | http(s) URL;媒体类型按扩展名自动识别(如 .ogg→voice、.webp→sticker)。caption 会出现在返回的 text 字段。parse_mode: none | markdown | html(作用于 caption)。"""
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         return await client.send_document(
@@ -96,7 +96,7 @@ def register(mcp: MCPServer) -> None:
         """发送语音(voice note)。media:本地路径(服务器侧可访问)| Telegram file_id | http(s) URL;建议用 .ogg/.mp3 音频文件。caption 会出现在返回的 text 字段。parse_mode: none | markdown | html(作用于 caption)。"""
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         return await client.send_voice(
@@ -116,7 +116,7 @@ def register(mcp: MCPServer) -> None:
         """发送贴纸。media:本地 .webp 路径 | Telegram file_id | http(s) URL。"""
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         return await client.send_sticker(chat_id, media, reply_to_message_id=reply_to_message_id)
@@ -134,7 +134,7 @@ def register(mcp: MCPServer) -> None:
         {"media": ..., "type": "photo"|"document", "caption": ...}。"""
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         return await client.send_media_group(
@@ -161,7 +161,7 @@ def register(mcp: MCPServer) -> None:
         is_quiz 时可用 correct_option_id(0 基)+ explanation。"""
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         return await client.send_poll(
@@ -189,7 +189,7 @@ def register(mcp: MCPServer) -> None:
         """给投票/测验投票(触发 bot 的 poll_answer 更新)。options:选项下标或下标列表。"""
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         return await client.vote_poll(chat_id, message_id, options)
@@ -207,7 +207,7 @@ def register(mcp: MCPServer) -> None:
         message_ids:单条或列表;from_chat_id 与 chat_id 都需在白名单。"""
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         from_chat_id = await resolve_chat_id(client, from_chat_id)
         require_chat(access, chat_id)
@@ -224,7 +224,7 @@ def register(mcp: MCPServer) -> None:
         邀请链接加入的新群不在白名单,加入后需将其加入白名单才能操作。"""
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         s = str(chat_id).strip()
         if s.lstrip("-").isdigit():
             chat_id = int(s)
@@ -242,7 +242,7 @@ def register(mcp: MCPServer) -> None:
         """退出群/频道(触发 bot 的 left_chat_member 更新)。"""
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         return await client.leave_chat(chat_id)
@@ -259,7 +259,7 @@ def register(mcp: MCPServer) -> None:
         """编辑自己发送的消息。"""
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         return await client.edit_message(chat_id, message_id, text)
@@ -272,7 +272,7 @@ def register(mcp: MCPServer) -> None:
         """删除消息(双方可见,revoke)。"""
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         return await client.delete_message(chat_id, message_id)
@@ -285,7 +285,7 @@ def register(mcp: MCPServer) -> None:
         """发送聊天动作(TYPING/UPLOAD_PHOTO 等,MTProto 层对 bot 可见)。"""
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         return await client.send_chat_action(chat_id, action)
@@ -313,7 +313,7 @@ def register(mcp: MCPServer) -> None:
         """
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         return await client.click_inline_button(
@@ -338,7 +338,7 @@ def register(mcp: MCPServer) -> None:
         """给消息发送 reaction(测试 bot 的 reaction 处理)。emoji 如 👍 ❤️ 🔥。"""
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         return await client.send_reaction(chat_id, message_id, emoji, big=big)

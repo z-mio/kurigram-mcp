@@ -66,22 +66,8 @@ class ServerState:
         return access
 
 
-ALLOWED_CHATS_HEADER = "x-kurigram-allowed-chats"
-
-
-async def access_for(ctx, state: ServerState, account: str | None = None) -> AccessControl:
-    """per-request 白名单:请求头 X-Kurigram-Allowed-Chats 优先,否则用该账号基础配置。
-
-    纯请求头模式:客户端在每个请求头里声明自己的白名单(逗号分隔的数字 id /
-    @username / me);未提供时回退账号配置,保持向后兼容。
-    """
-    client = state.resolve(account)
-    request = getattr(ctx.request_context, "request", None)
-    header = request.headers.get(ALLOWED_CHATS_HEADER) if request is not None else None
-    if header:
-        from ..access import AccessControl
-
-        return await AccessControl.from_header(header, client.raw, client.me.id)
+def access_for(state: ServerState, account: str | None = None) -> AccessControl:
+    """取账号白名单:账号级 sessions.<name>.allowed_chat_ids,未配置时回退全局。"""
     return state.resolve_access(account)
 
 
@@ -91,7 +77,8 @@ def require_chat(access, chat_id: int) -> None:
         raise McpError(
             NOT_WHITELISTED,
             f"chat_id={chat_id} 不在白名单中(fail-closed),已拒绝;"
-            "请通过请求头 X-Kurigram-Allowed-Chats 或服务器配置 ALLOWED_CHAT_IDS 加入",
+            "请通过账号白名单(`km session add NAME --allowed-chat-ids ...`)"
+            "或全局配置 ALLOWED_CHAT_IDS 加入",
         )
 
 

@@ -19,7 +19,7 @@ def register(mcp: MCPServer) -> None:
         """获取聊天完整资料(标题、用户名、类型、描述、成员数等)。"""
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         return await client.get_chat(chat_id)
@@ -36,7 +36,7 @@ def register(mcp: MCPServer) -> None:
         """读取聊天历史,新的在前(新→旧)。翻页:把返回的 next_offset_id 作为下次的 offset_id。"""
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         return await client.get_chat_history(chat_id, limit=limit, offset_id=offset_id)
@@ -52,7 +52,7 @@ def register(mcp: MCPServer) -> None:
         """按 id 获取指定消息。"""
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         return await client.get_messages(chat_id, message_ids)
@@ -63,7 +63,7 @@ def register(mcp: MCPServer) -> None:
         """列出所有会话,仅返回白名单内的(不泄露其他聊天)。"""
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         return await client.get_dialogs(access.ids())
 
     @mcp.tool()
@@ -78,7 +78,7 @@ def register(mcp: MCPServer) -> None:
         """在聊天内搜索消息(按相关性,新→旧)。"""
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         return await client.search_messages(chat_id, query, limit=limit)
@@ -91,7 +91,7 @@ def register(mcp: MCPServer) -> None:
         """群/频道成员数(join/leave 测试后断言成员数变化)。"""
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         return await client.get_chat_members_count(chat_id)
@@ -108,7 +108,7 @@ def register(mcp: MCPServer) -> None:
         """下载消息中的媒体到本地路径(默认 downloads/<chat_id>/<message_id>),返回绝对路径供进一步读取。"""
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         return await client.download_media(chat_id, message_id, path)

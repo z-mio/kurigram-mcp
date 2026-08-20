@@ -21,7 +21,7 @@
 | 🔌 **Standard MCP**   | Streamable HTTP transport, 2026-07-28 protocol, backward-compatible with 2025-11-25 clients (Claude Code, Codex, DSH) |
 | 🧪 **Bot debugging**  | Send `/start`, measure reply latency, wait for events, drain update streams                                           |
 | 🛠️ **Deep debugging** | `raw_invoke` any MTProto function, with built-in API discovery                                                        |
-| 🔒 **Chat whitelist** | Per-client control via request header, fail-closed by default                                                         |
+| 🔒 **Chat whitelist** | Per-account whitelist with global fallback, fail-closed by default                                                         |
 | ⚡ **Stateless**      | Server restarts don't break connected clients                                                                         |
 | 🚀 **Zero config**    | `uv tool install`, interactive setup wizard, one-command login                                                        |
 
@@ -76,8 +76,8 @@ km run                   # every tool now accepts account="alice" / account="bob
   accounts are skipped with a warning.
 - The legacy single-account config (`api_id` at top level) is the implicit account **`default`**
   — existing setups keep working unchanged.
-- Per-account `--allowed-chat-ids` overrides the global whitelist for that account; the
-  per-request `X-Kurigram-Allowed-Chats` header still wins for individual calls.
+- Per-account `--allowed-chat-ids` overrides the global whitelist for that account; accounts
+  without their own whitelist fall back to the global `allowed_chat_ids`.
 - `km auth` with multiple accounts and no name shows an interactive picker;
   `mcp_get_server_info` lists all connected accounts.
 
@@ -97,15 +97,14 @@ km run                   # every tool now accepts account="alice" / account="bob
 ```bash
 # Claude Code
 claude mcp add --transport http kurigram-mcp http://127.0.0.1:8765/mcp \
-  --header "Authorization: Bearer <AUTH_TOKEN>" \
-  --header "X-Kurigram-Allowed-Chats: 6540476263"   # optional per-client whitelist
+  --header "Authorization: Bearer <AUTH_TOKEN>"
 ```
 
 ```toml
 # Codex (~/.codex/config.toml)
 [mcp_servers.kurigram-mcp]
 url = "http://127.0.0.1:8765/mcp"
-http_headers = { "Authorization" = "Bearer <AUTH_TOKEN>", "X-Kurigram-Allowed-Chats" = "6540476263" }
+http_headers = { "Authorization" = "Bearer <AUTH_TOKEN>" }
 ```
 
 ```yaml
@@ -118,18 +117,16 @@ http_headers = { "Authorization" = "Bearer <AUTH_TOKEN>", "X-Kurigram-Allowed-Ch
     url: http://127.0.0.1:8765/mcp
     headers:
       Authorization: !!js '`Bearer ${process.env.KURIGRAM_TOKEN}`'
-      X-Kurigram-Allowed-Chats: '6540476263'
 ```
 
 ### 🔐 Chat Whitelist
 
-1. **Request header `X-Kurigram-Allowed-Chats`** — per-client declaration (comma-separated: numeric chat ids,
-   `@username`,
-   `me`).
-2. **Config `allowed_chat_ids`** — fallback when the header is absent.
+1. **Per-account whitelist** — `km session add NAME --allowed-chat-ids "..."` (comma-separated:
+   numeric chat ids, `@username`, `me`). Each account is isolated.
+2. **Global fallback** — config `allowed_chat_ids` applies to any account that didn't set its own.
 
 Fail-closed: chats outside the whitelist are rejected with `[NOT_WHITELISTED]`; `get_dialogs` only returns whitelisted
-chats.
+chats; events from non-whitelisted chats are dropped before reaching the event bus.
 
 ## ⚙️ Configuration
 
@@ -138,7 +135,7 @@ All configuration lives in **one file**: `~/.kurigram-mcp/config.yaml`.
 ```yaml
 api_id: 123456
 api_hash: your_hash
-allowed_chat_ids: "123456789,me"   # fallback whitelist
+allowed_chat_ids: "123456789,me"   # global fallback whitelist (per-account overrides it)
 host: 127.0.0.1
 port: 8765
 auth_token: auto_generated_or_yours # Bearer auth

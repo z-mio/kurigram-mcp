@@ -1,8 +1,8 @@
 """聊天白名单访问控制:默认 fail-closed,不在白名单内的 chat 一律拒绝。
 
-白名单来源(优先级):
-1. 请求头 X-Kurigram-Allowed-Chats(HTTP 模式,per-client 声明,纯请求头模式)
-2. 服务器基础配置 ALLOWED_CHAT_IDS(兜底)
+白名单来源(按账号解析):
+1. 账号级白名单 sessions.<name>.allowed_chat_ids(每账号独立,本次新增)
+2. 全局配置 ALLOWED_CHAT_IDS(账号级未配置时的兜底)
 条目支持:数字 chat_id(含负 ID)、@username、me(Saved Messages)。
 """
 
@@ -67,13 +67,6 @@ class AccessControl:
                 INTERNAL,
                 f"STRICT_WHITELIST 下解析失败: {', '.join('@' + n for n in self._unresolved)}",
             )
-
-    @classmethod
-    async def from_header(cls, header_value: str, client, me_id: int) -> AccessControl:
-        """从请求头构建白名单(me/@username 即时解析,username 带缓存)。"""
-        ac = cls(header_value, strict=False)
-        await ac.resolve(client, me_id)
-        return ac
 
     def is_allowed(self, chat_id: int) -> bool:
         return chat_id in self._ids

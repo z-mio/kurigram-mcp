@@ -104,7 +104,7 @@ class Settings(BaseSettings):
     # 当前解析出的账号名(resolve_account 设置,用于日志/快照回写)
     account_name: str | None = None
 
-    # ---- 聊天白名单(基础兜底;HTTP 模式下可用请求头 X-Kurigram-Allowed-Chats 覆盖)----
+    # ---- 聊天白名单(全局兜底;账号级 sessions.<name>.allowed_chat_ids 可覆盖)----
     allowed_chat_ids: str = ""
     strict_whitelist: bool = False
 

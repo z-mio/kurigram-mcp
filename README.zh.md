@@ -21,7 +21,7 @@
 | 🔌 **标准 MCP**   | Streamable HTTP 传输,2026-07-28 协议,向下兼容 2025-11-25 客户端 (Claude Code、Codex、DSH) |
 | 🧪 **Bot 调试**   | 发送 `/start`、测量回复延迟、等待事件、消费更新流                                         |
 | 🛠️ **深度调试**   | `raw_invoke` 调用任意 MTProto 函数,内置 API 发现                                          |
-| 🔒 **聊天白名单** | 请求头 per-client 声明,fail-closed                                                        |
+| 🔒 **聊天白名单** | 账号级白名单 + 全局兜底,fail-closed                                                        |
 | ⚡ **无状态**     | 服务器重启不影响已连接的客户端                                                            |
 | 🚀 **零配置**     | `uv tool install` + 交互式向导,一条命令登录                                               |
 
@@ -71,7 +71,7 @@ km run                   # 之后每个工具都可传 account="alice" / account
 - 事件总线按账号隔离:`wait_for_update` / `expect_silent` / `drain_updates` 只看到该账号的事件。
 - `km run --account alice` 可启动单账号服务器(隔离模式);未登录的账号启动时警告跳过。
 - 旧式单账号配置(顶层 `api_id`)即隐式账号 **`default`** —— 现有配置零迁移。
-- 每账号 `--allowed-chat-ids` 覆盖全局白名单;单次请求的 `X-Kurigram-Allowed-Chats` 请求头仍优先。
+- 每账号 `--allowed-chat-ids` 覆盖全局白名单;未设置的账号回退全局 `allowed_chat_ids`。
 - 多账号时 `km auth` 不带名字会交互式选择;`mcp_get_server_info` 列出所有已连接账号。
 
 ## 🧰 工具 (34 个)
@@ -90,15 +90,14 @@ km run                   # 之后每个工具都可传 account="alice" / account
 ```bash
 # Claude Code
 claude mcp add --transport http kurigram-mcp http://127.0.0.1:8765/mcp \
-  --header "Authorization: Bearer <AUTH_TOKEN>" \
-  --header "X-Kurigram-Allowed-Chats: 6540476263"   # 可选:per-client 白名单
+  --header "Authorization: Bearer <AUTH_TOKEN>"
 ```
 
 ```toml
 # Codex (~/.codex/config.toml)
 [mcp_servers.kurigram-mcp]
 url = "http://127.0.0.1:8765/mcp"
-http_headers = { "Authorization" = "Bearer <AUTH_TOKEN>", "X-Kurigram-Allowed-Chats" = "6540476263" }
+http_headers = { "Authorization" = "Bearer <AUTH_TOKEN>" }
 ```
 
 ```yaml
@@ -111,15 +110,16 @@ http_headers = { "Authorization" = "Bearer <AUTH_TOKEN>", "X-Kurigram-Allowed-Ch
     url: http://127.0.0.1:8765/mcp
     headers:
       Authorization: !!js '`Bearer ${process.env.KURIGRAM_TOKEN}`'
-      X-Kurigram-Allowed-Chats: '6540476263'
 ```
 
 ### 🔐 聊天白名单
 
-1. **请求头 `X-Kurigram-Allowed-Chats`** — per-client 声明 (逗号分隔:数字 chat_id、`@username`、`me`)。
-2. **配置 `allowed_chat_ids`** — 请求头缺失时的兜底。
+1. **账号级白名单** — `km session add NAME --allowed-chat-ids "..."`(逗号分隔:数字 chat_id、`@username`、`me`),
+   每账号互相隔离。
+2. **全局兜底** — 配置 `allowed_chat_ids` 作用于未设置账号级白名单的账号。
 
-Fail-closed:白名单外的聊天一律拒绝,返回 `[NOT_WHITELISTED]`;`get_dialogs` 只返回白名单内的聊天。
+Fail-closed:白名单外的聊天一律拒绝,返回 `[NOT_WHITELISTED]`;`get_dialogs` 只返回白名单内的聊天;
+非白名单聊天的事件在进入事件总线前即被丢弃。
 
 ## ⚙️ 配置
 

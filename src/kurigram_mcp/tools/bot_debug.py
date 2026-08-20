@@ -125,7 +125,7 @@ def register(mcp: MCPServer) -> None:
         """
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         start = time.time()
@@ -177,7 +177,7 @@ def register(mcp: MCPServer) -> None:
         """
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         start_seq = client.bus.latest_seq
@@ -208,7 +208,7 @@ def register(mcp: MCPServer) -> None:
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
         if chat_id is not None:
-            access = await access_for(ctx, state, account)
+            access = access_for(state, account)
             chat_id = await resolve_chat_id(client, chat_id)
             require_chat(access, chat_id)
         new_cursor, events = client.bus.drain(cursor, chat_id=chat_id, limit=limit)
@@ -227,7 +227,7 @@ def register(mcp: MCPServer) -> None:
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
         chat = await client.raw.get_chat(bot_username)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         require_chat(access, chat.id)
         return await client.start_bot(bot_username, param=param)
 
@@ -247,7 +247,7 @@ def register(mcp: MCPServer) -> None:
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
         chat = await client.raw.get_chat(bot_username)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         require_chat(access, chat.id)
         return await client.send_inline_query(bot_username, query=query, offset=offset)
 
@@ -269,7 +269,7 @@ def register(mcp: MCPServer) -> None:
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
         chat = await client.raw.get_chat(bot_username)
-        access = await access_for(ctx, state, account)
+        access = access_for(state, account)
         require_chat(access, chat.id)
         meta = await client.bot_meta(bot_username)
         start_seq = client.bus.latest_seq
