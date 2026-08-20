@@ -59,6 +59,8 @@ def build_server(settings: Settings, accounts: list[str] | None = None) -> MCPSe
             await access.resolve(client.raw, me_id=client.me.id)
             client.bus.set_allowed_ids(access.ids())
             me = client.me
+            dc = getattr(getattr(client.raw, "session", None), "dc_id", None)
+            _refresh_me_snapshot(acc_settings, me, dc)
             logger.info(
                 "账号 '{}' (api_id={}) 已连接: {} @{}",
                 name,
@@ -98,6 +100,23 @@ def build_server(settings: Settings, accounts: list[str] | None = None) -> MCPSe
     )
     register_tools(mcp)
     return mcp
+
+
+def _refresh_me_snapshot(acc_settings: Settings, me, dc: int | None) -> None:
+    """启动成功后刷新注册表中的身份快照(让 `session list` 离线展示保持新鲜)。"""
+    try:
+        from .sessions import make_me_snapshot, update_me
+
+        update_me(
+            acc_settings,
+            make_me_snapshot(
+                first_name=getattr(me, "first_name", "") or "",
+                username=getattr(me, "username", None),
+                dc=dc,
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 - 快照刷新失败不影响启动
+        logger.debug("刷新身份快照失败: {}", exc)
 
 
 def run_server(settings: Settings, accounts: list[str] | None = None, **overrides) -> None:

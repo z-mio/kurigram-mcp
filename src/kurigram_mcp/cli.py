@@ -154,7 +154,7 @@ def _cmd_session(settings: Settings, args: argparse.Namespace) -> int:
         else:
             status = "✗ 未登录(运行 km auth {})".format(r["name"])
         extras = ""
-        if args.verbose:
+        if getattr(args, "verbose", False):
             extras = f" proxy={r['proxy'] or '-'} whitelist={r['allowed_chat_ids'] or '(全局)'}"
         print(f"{r['name']:<12} {r['api_id']:<12} {status:<32} {r['session_file']}{extras}")
     return 0
