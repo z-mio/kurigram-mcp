@@ -142,6 +142,61 @@ def add_session(
     return {"name": name, "api_id": api_id, "session_file": str(_session_file(settings, api_id))}
 
 
+def set_session(
+    settings: Settings,
+    name: str,
+    allowed_chat_ids: str | None = None,
+    proxy: str | None = None,
+) -> dict:
+    """更新账号配置(白名单/代理)。
+
+    None = 保持原值;空字符串 = 清除(白名单清除后回退全局,代理清除后走全局/直连)。
+    default 账号的白名单即顶层 allowed_chat_ids。
+    """
+    data = load_raw()
+    name = name.strip()
+
+    if name == DEFAULT_ACCOUNT:
+        if not settings.api_id:
+            raise McpError(ACCOUNT_NOT_FOUND, f"账号 '{DEFAULT_ACCOUNT}' 未配置,无需修改")
+        if allowed_chat_ids is not None:
+            data["allowed_chat_ids"] = allowed_chat_ids
+        if proxy is not None:
+            if proxy:
+                data["proxy"] = proxy
+            else:
+                data.pop("proxy", None)
+        save_raw(data)
+        return {
+            "name": name,
+            "allowed_chat_ids": data.get("allowed_chat_ids", ""),
+            "proxy": data.get("proxy"),
+        }
+
+    sessions = data.get("sessions") or {}
+    entry = sessions.get(name)
+    if not entry or not isinstance(entry, dict):
+        raise McpError(ACCOUNT_NOT_FOUND, f"账号 '{name}' 不存在;运行 `kurigram-mcp session list` 查看")
+    if allowed_chat_ids is not None:
+        if allowed_chat_ids:
+            entry["allowed_chat_ids"] = allowed_chat_ids
+        else:
+            entry.pop("allowed_chat_ids", None)  # 清除 → 回退全局
+    if proxy is not None:
+        if proxy:
+            entry["proxy"] = proxy
+        else:
+            entry.pop("proxy", None)
+    sessions[name] = entry
+    data["sessions"] = sessions
+    save_raw(data)
+    return {
+        "name": name,
+        "allowed_chat_ids": entry.get("allowed_chat_ids", ""),
+        "proxy": entry.get("proxy"),
+    }
+
+
 def remove_session(settings: Settings, name: str, force: bool = False) -> dict:
     """删除账号:注册表条目 + 会话文件(含旧布局位置)。default 只清顶层凭据。"""
     data = load_raw()

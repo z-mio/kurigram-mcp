@@ -15,6 +15,7 @@ from kurigram_mcp.sessions import (
     list_sessions,
     make_me_snapshot,
     remove_session,
+    set_session,
     update_me,
 )
 
@@ -241,6 +242,64 @@ def test_add_session_duplicates(home):
 def test_add_session_requires_hash(home):
     with pytest.raises(McpError):
         add_session(_settings(), "alice", 222, "  ")
+
+
+# ---- session set ----
+
+def test_set_session_whitelist(home):
+    _write_config(home, {"sessions": {"alice": {"name": "alice", "api_id": 222, "api_hash": "h222", "proxy": "socks5://x:1"}}})
+    result = set_session(_settings(), "alice", allowed_chat_ids="-1001, me")
+    assert result["allowed_chat_ids"] == "-1001, me"
+    assert result["proxy"] == "socks5://x:1"  # 未修改的字段保留
+    data = yaml.safe_load((home / "config.yaml").read_text())
+    assert data["sessions"]["alice"]["allowed_chat_ids"] == "-1001, me"
+    assert data["sessions"]["alice"]["proxy"] == "socks5://x:1"
+
+
+def test_set_session_clear_whitelist_falls_back(home):
+    """白名单清空 = 移除账号级条目,回退全局。"""
+    _write_config(home, {"allowed_chat_ids": "999", "sessions": {"alice": {"name": "alice", "api_id": 222, "api_hash": "h222", "allowed_chat_ids": "-1001"}}})
+    result = set_session(_settings(), "alice", allowed_chat_ids="")
+    assert result["allowed_chat_ids"] == ""
+    data = yaml.safe_load((home / "config.yaml").read_text())
+    assert "allowed_chat_ids" not in data["sessions"]["alice"]
+    assert data["allowed_chat_ids"] == "999"  # 全局不受影响
+
+
+def test_set_session_proxy(home):
+    _write_config(home, {"sessions": {"alice": {"name": "alice", "api_id": 222, "api_hash": "h222", "proxy": "socks5://old:1"}}})
+    # 换代理
+    set_session(_settings(), "alice", proxy="socks5://new:2")
+    data = yaml.safe_load((home / "config.yaml").read_text())
+    assert data["sessions"]["alice"]["proxy"] == "socks5://new:2"
+    # 清代理
+    set_session(_settings(), "alice", proxy="")
+    data = yaml.safe_load((home / "config.yaml").read_text())
+    assert "proxy" not in data["sessions"]["alice"]
+
+
+def test_set_session_default_account(home):
+    _write_config(home, {"api_id": 111, "api_hash": "h111", "allowed_chat_ids": "1"})
+    result = set_session(_settings(), DEFAULT_ACCOUNT, allowed_chat_ids="2,3")
+    assert result["name"] == DEFAULT_ACCOUNT
+    data = yaml.safe_load((home / "config.yaml").read_text())
+    assert data["allowed_chat_ids"] == "2,3"
+    assert data["api_id"] == 111  # 凭据不受影响
+
+
+def test_set_session_missing_account(home):
+    _write_config(home, {"api_id": 111, "api_hash": "h111"})
+    with pytest.raises(McpError) as ei:
+        set_session(_settings(), "nobody", allowed_chat_ids="1")
+    assert ei.value.code == ACCOUNT_NOT_FOUND
+
+
+def test_set_session_none_keeps_values(home):
+    _write_config(home, {"sessions": {"alice": {"name": "alice", "api_id": 222, "api_hash": "h222", "allowed_chat_ids": "1"}}})
+    result = set_session(_settings(), "alice")  # 两个选项都 None
+    assert result["allowed_chat_ids"] == "1"
+    data = yaml.safe_load((home / "config.yaml").read_text())
+    assert data["sessions"]["alice"]["allowed_chat_ids"] == "1"
 
 
 # ---- session remove ----

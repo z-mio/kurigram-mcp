@@ -64,7 +64,12 @@ km auth bob
 # 3. See login status offline (cached identity, no network needed)
 km session list          # add -v for proxy/whitelist details
 
-# 4. Start ONE server — all logged-in accounts connect together
+# 4. Edit an account's whitelist/proxy later (restart the server to apply)
+km session set alice --allowed-chat-ids="-1001234567890,@mybot,me"   # note: use `=` for values starting with `-`
+km session set alice --allowed-chat-ids ""   # clear → fall back to global whitelist
+km session set bob --proxy socks5://127.0.0.1:1080   # or --proxy "" to clear
+
+# 5. Start ONE server — all logged-in accounts connect together
 km run                   # every tool now accepts account="alice" / account="bob"
 ```
 

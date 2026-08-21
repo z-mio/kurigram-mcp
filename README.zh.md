@@ -62,7 +62,12 @@ km auth bob
 # 3. 离线查看登录状态(缓存身份,无需联网)
 km session list          # 加 -v 显示 proxy/白名单详情
 
-# 4. 只启动一个服务器 —— 所有已登录账号一起连上
+# 4. 之后修改账号的白名单/代理(重启服务器生效)
+km session set alice --allowed-chat-ids="-1001234567890,@mybot,me"   # 注意:负号开头的值用 `=` 传参
+km session set alice --allowed-chat-ids ""   # 清空 → 回退全局白名单
+km session set bob --proxy socks5://127.0.0.1:1080   # 或 --proxy "" 清除
+
+# 5. 只启动一个服务器 —— 所有已登录账号一起连上
 km run                   # 之后每个工具都可传 account="alice" / account="bob"
 ```
 

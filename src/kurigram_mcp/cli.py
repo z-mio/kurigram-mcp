@@ -49,7 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     auth_p = sub.add_parser("auth", help="交互式登录 Telegram(需先配置 API_ID/API_HASH)")
     auth_p.add_argument("name", nargs="?", help="账号名(缺省时:单账号直接使用,多账号交互选择)")
 
-    session_p = sub.add_parser("session", help="会话(账号)管理:add / list / remove")
+    session_p = sub.add_parser("session", help="会话(账号)管理:add / list / set / remove")
     session_p.add_argument("-v", "--verbose", action="store_true", help="list 时显示 proxy/白名单/登录时间等详情")
     session_sub = session_p.add_subparsers(dest="session_command")
 
@@ -59,6 +59,11 @@ def build_parser() -> argparse.ArgumentParser:
     add_p.add_argument("--api-hash", required=True, help="API_HASH")
     add_p.add_argument("--proxy", help="该账号专用代理(可选,如 socks5://127.0.0.1:1080)")
     add_p.add_argument("--allowed-chat-ids", help="该账号专用白名单(可选,逗号分隔;留空用全局)")
+
+    set_p = session_sub.add_parser("set", help="修改账号配置(白名单/代理),重启服务器后生效")
+    set_p.add_argument("name", help="账号名(或保留名 default)")
+    set_p.add_argument("--allowed-chat-ids", help="新白名单(逗号分隔;传空字符串 '' 清除→回退全局)")
+    set_p.add_argument("--proxy", help="新代理(传空字符串 '' 清除→直连/全局)")
 
     list_p = session_sub.add_parser("list", aliases=["ls"], help="列出所有账号与登录状态")
     list_p.add_argument("-v", "--verbose", action="store_true", help="显示 proxy/白名单等完整信息")
@@ -121,6 +126,28 @@ def _cmd_session(settings: Settings, args: argparse.Namespace) -> int:
             result["api_id"],
             result["session_file"],
             result["name"],
+        )
+        return 0
+
+    if cmd == "set":
+        if args.allowed_chat_ids is None and args.proxy is None:
+            logger.error("至少提供一个要修改的选项:--allowed-chat-ids 或 --proxy")
+            return 1
+        try:
+            result = session_store.set_session(
+                settings,
+                args.name,
+                allowed_chat_ids=args.allowed_chat_ids,
+                proxy=args.proxy,
+            )
+        except McpError as exc:
+            logger.error(exc.message)
+            return 1
+        logger.success(
+            "账号 '{}' 已更新: 白名单={} 代理={}(重启服务器后生效)",
+            result["name"],
+            result["allowed_chat_ids"] or "(全局)",
+            result["proxy"] or "-",
         )
         return 0
 
