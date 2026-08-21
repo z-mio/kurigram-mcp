@@ -413,7 +413,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"kurigram-mcp {__version__}")
     sub = parser.add_subparsers(dest="command")
 
-    run_p = sub.add_parser("run", help="启动 MCP 服务器(默认命令)")
+    run_p = sub.add_parser("run", help="启动 MCP 服务器")
     run_p.add_argument("--account", help="只启动指定账号(缺省:启动全部已注册账号;见 `session list`)")
     run_p.add_argument("--host", help="监听地址(默认取 HOST,127.0.0.1)")
     run_p.add_argument("--port", type=int, help="监听端口(默认取 PORT,8765)")
@@ -462,6 +462,11 @@ def main(argv: list[str] | None = None) -> int:
 
     settings = Settings()
     setup_logging(settings.log_level)
+
+    # 裸命令(无子命令):不启动服务器,打印帮助
+    if args.command is None:
+        parser.print_help()
+        return 0
 
     if args.command == "setup":
         return run_setup()
