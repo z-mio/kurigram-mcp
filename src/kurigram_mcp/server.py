@@ -55,7 +55,7 @@ def build_server(settings: Settings, accounts: list[str] | None = None) -> MCPSe
             except McpError as exc:
                 logger.warning("账号 '{}' 启动失败,跳过: {}", name, exc.message)
                 continue
-            access = AccessControl(acc_settings.allowed_chat_ids, acc_settings.strict_whitelist)
+            access = AccessControl(acc_settings.allowed_chat_ids, acc_settings.strict_usernames)
             await access.resolve(client.raw, me_id=client.me.id)
             client.bus.set_allowed_ids(access.ids())
             me = client.me

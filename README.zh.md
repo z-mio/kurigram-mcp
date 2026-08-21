@@ -93,6 +93,15 @@ km run                   # 之后每个工具都可传 account="alice" / account
 | ⏱️  事件 | `wait_for_update`(谓词含 `is_media` / `media_type`)、`drain_updates`                                                                                                                                                                                                         |
 | 🔬 深度 | `raw_invoke`、`list_raw_methods`、`get_raw_method_info`                                                                                                                                                                                                                      |
 
+## 💡 调试提示
+
+- **事件只来自"他人"的消息**(bot / 其他用户)—— 自己发送的消息**不会**出现在
+  `wait_for_update` / `drain_updates` 里(Telegram 在发送响应中内联返回,不推送)。
+- 服务器启动以来零事件时,`wait_for_update` 会标记 `event_stream_idle: true` ——
+  用 `get_chat_history` 区分"bot 没回"和"事件流异常"。
+- 长等待工具(`wait_for_update` / `expect_silent` / `probe_bot`)需要 MCP 客户端
+  **读超时 ≥ 工具 timeout**(如 `timeout=None`);默认 5s HTTP 超时会中途切断等待。
+
 ## 🔌 客户端接入
 
 ```bash

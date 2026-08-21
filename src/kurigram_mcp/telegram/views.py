@@ -317,6 +317,7 @@ def message_view(msg) -> dict:
         "is_outgoing": out,  # out 的语义别名,便于理解
         "from": user_ref(from_user),
         "text": getattr(msg, "text", None) or getattr(msg, "caption", None),
+        "caption": getattr(msg, "caption", None),  # 媒体消息的说明文字(text 同时回显)
         "rich": _rich_message_view(raw_msg),  # 富消息内容(guest bot AI 回复等)
         "entities": _entities_of(msg),
         "links": _links_of(msg),

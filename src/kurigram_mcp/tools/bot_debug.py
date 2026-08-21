@@ -146,12 +146,20 @@ def register(mcp: MCPServer) -> None:
         )
         waited = round(time.time() - start, 2)
         if ev is None:
-            return {
+            out = {
                 "matched": False,
                 "timeout": True,
                 "waited_seconds": waited,
                 "hint": f"用 get_chat_history 验证历史,或 drain_updates(cursor={client.bus.latest_seq}) 拉取后续事件",
             }
+            if client.bus.latest_seq == 0:
+                # 进程启动以来零事件:可能事件流异常,或目标 chat 确实静默(自己发的消息不入总线)
+                out["event_stream_idle"] = True
+                out["hint"] += (
+                    ";注意:自己发送的消息不会产生事件(Telegram 只在响应内联),"
+                    "请等 bot/他人消息,或用 get_chat_history 查证"
+                )
+            return out
         return {"matched": True, "waited_seconds": waited, "event": event_view(ev)}
 
     @mcp.tool()

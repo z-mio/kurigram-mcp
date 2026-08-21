@@ -52,13 +52,13 @@ def test_env_parsing(monkeypatch) -> None:
     monkeypatch.setenv("API_HASH", "abcdef")
     monkeypatch.setenv("ALLOWED_CHAT_IDS", "-1001,@bot,me")
     monkeypatch.setenv("PORT", "9000")
-    monkeypatch.setenv("STRICT_WHITELIST", "true")
+    monkeypatch.setenv("STRICT_USERNAMES", "true")
     s = Settings(_env_file=None)
     assert s.api_id == 12345
     assert s.api_hash == "abcdef"
     assert s.allowed_chat_ids == "-1001,@bot,me"
     assert s.port == 9000
-    assert s.strict_whitelist is True
+    assert s.strict_usernames is True
 
 
 def test_require_credentials(monkeypatch) -> None:

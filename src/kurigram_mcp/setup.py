@@ -91,7 +91,7 @@ def run_setup() -> int:
         "host": existing.get("host", "127.0.0.1"),
         "port": existing.get("port", 8765),
         "auth_token": existing_token,
-        "strict_whitelist": bool(existing.get("strict_whitelist", False)),
+        "strict_usernames": bool(existing.get("strict_usernames", False)),
     }
     cfg_path.write_text(
         "# kurigram-mcp 配置(由 `kurigram-mcp setup` 生成,修改后重启服务器生效)\n"

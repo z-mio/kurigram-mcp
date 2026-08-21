@@ -108,7 +108,7 @@ class Settings(BaseSettings):
 
     # ---- 聊天白名单(全局兜底;账号级 sessions.<name>.allowed_chat_ids 可覆盖)----
     allowed_chat_ids: str = ""
-    strict_whitelist: bool = False
+    strict_usernames: bool = False
 
     # ---- MCP 服务器 ----
     host: str = "127.0.0.1"

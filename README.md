@@ -100,6 +100,17 @@ km run                   # every tool now accepts account="alice" / account="bob
 | ⏱️ Events   | `wait_for_update`(谓词含 `is_media` / `media_type`), `drain_updates`                                                                                                                                                                                                         |
 | 🔬 Deep    | `raw_invoke`, `list_raw_methods`, `get_raw_method_info`                                                                                                                                                                                                                      |
 
+## 💡 Debugging Tips
+
+- **Events only fire for messages from *others*** (bots / other users) — your own sent messages
+  never appear in `wait_for_update` / `drain_updates` (Telegram returns them inline in the send
+  response, not as pushes).
+- `wait_for_update` marks `event_stream_idle: true` when the server received zero events since
+  startup — use `get_chat_history` to tell "bot is silent" apart from "event stream broken".
+- Long waits (`wait_for_update`, `expect_silent`, `probe_bot`) need an MCP client with a
+  **read-timeout ≥ the tool timeout** (e.g. `timeout=None`); a default 5s HTTP timeout cuts
+  them off mid-wait.
+
 ## 🔌 Client Setup
 
 ```bash
