@@ -792,12 +792,21 @@ class TelegramClient:
         return out
 
     async def download_media(self, chat_id: int, message_id: int, path: str | None = None) -> dict:
-        """下载消息媒体到本地路径,返回绝对路径与大小。"""
+        """下载消息媒体到本地路径,返回绝对路径与大小。
+
+        path 缺省 → downloads/<chat_id>/<message_id>;
+        相对路径 → 以 downloads_dir 为基准解析(2.2.25 起 pyrogram 会把相对路径
+        解析到 workdir 即 sessions/ 目录,这里显式接管避免文件落错位置)。
+        """
         msg = await self.raw.get_messages(chat_id, message_id)
         if msg is None or not getattr(msg, "media", None):
             raise McpError("NO_MEDIA", f"消息 {message_id} 没有媒体(或已被删除)")
         if path is None:
             path = str(self.settings.downloads_dir / str(chat_id) / str(message_id))
+        else:
+            p = Path(path)
+            if not p.is_absolute():
+                path = str(self.settings.downloads_dir / p)
         out = await self.raw.download_media(msg, file_name=path)
         if out is None:
             raise McpError("NO_MEDIA", f"消息 {message_id} 媒体下载失败")
