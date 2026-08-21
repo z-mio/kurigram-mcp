@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import re
 
 
@@ -169,6 +170,72 @@ def _iso(ts) -> str | None:
     return iso
 
 
+def _rich_text(node) -> str:
+    """raw RichText -> 纯文本(递归)。
+
+    Telegram 富消息(layer 228 rich_message)的内容以 RichText 树表达:
+    TextPlain / TextConcat / TextItalic / TextBold / TextUrl 等;
+    按结构递归展开(不依赖具体类名),链接/邮箱/用户附注原文。
+    """
+    if node is None:
+        return ""
+    if isinstance(node, str):
+        return node
+    url = getattr(node, "url", None)
+    email = getattr(node, "email", None)
+    user_id = getattr(node, "user_id", None)
+    texts = getattr(node, "texts", None)
+    text = getattr(node, "text", None)
+
+    if url or email or user_id:
+        inner = _rich_text(text) if text is not None else ""
+        if url:
+            url = html.unescape(url)
+            return f"{inner} ({url})" if inner and url not in inner else inner or url
+        if email:
+            return f"{inner} ({email})" if inner else email
+        return f"{inner} (user {user_id})" if inner else f"(user {user_id})"
+    if texts:
+        return "".join(_rich_text(t) for t in texts)
+    if isinstance(text, str):
+        return text
+    if text is not None:
+        return _rich_text(text)
+    name = type(node).__name__
+    if name == "TextImage":
+        return "[图片]"
+    if name == "TextCustomEmoji":
+        return "[emoji]"
+    return ""
+
+
+def _rich_message_view(raw_msg) -> dict | None:
+    """raw Message.rich_message -> 简化结构 {text, blocks}。
+
+    guest bot(AI 回复,如 @mira)的内容以富消息下发:普通 text 为空,
+    实际内容在 rich_message.blocks(PageBlockParagraph 等)里。
+    返回 None 表示该消息没有富内容。
+    """
+    rich = getattr(raw_msg, "rich_message", None)
+    if rich is None:
+        return None
+    blocks = []
+    for b in (getattr(rich, "blocks", None) or []):
+        btext = getattr(b, "text", None)
+        name = type(b).__name__
+        btype = name.removeprefix("PageBlock").lower() if name.startswith("PageBlock") else "block"
+        if btext is not None:
+            blocks.append({"type": btype, "text": _rich_text(btext)})
+        elif name == "PageBlockDivider":
+            blocks.append({"type": "divider", "text": "---"})
+        elif name == "PageBlockList":
+            items = [_rich_text(getattr(it, "text", None)) for it in (getattr(b, "items", None) or [])]
+            blocks.append({"type": "list", "text": "\n".join(x for x in items if x)})
+        # 其他 PageBlock 类型(网页文档用)不展开
+    text = "\n".join(b["text"] for b in blocks if b.get("text"))
+    return {"text": text or None, "blocks": blocks} if blocks else None
+
+
 def _entity_type_label(e) -> str | None:
     """实体类型 -> 简洁标签。
 
@@ -240,6 +307,7 @@ def message_view(msg) -> dict:
     """pyrogram Message -> 扁平 dict(AI 友好)。"""
     from_user = getattr(msg, "from_user", None)
     out = bool(getattr(msg, "out", False)) or bool(getattr(from_user, "is_self", False))
+    raw_msg = getattr(msg, "raw", None)
     return {
         "message_id": msg.id,
         "chat_id": msg.chat.id if getattr(msg, "chat", None) else None,
@@ -249,6 +317,7 @@ def message_view(msg) -> dict:
         "is_outgoing": out,  # out 的语义别名,便于理解
         "from": user_ref(from_user),
         "text": getattr(msg, "text", None) or getattr(msg, "caption", None),
+        "rich": _rich_message_view(raw_msg),  # 富消息内容(guest bot AI 回复等)
         "entities": _entities_of(msg),
         "links": _links_of(msg),
         "media": str(msg.media.value) if getattr(msg, "media", None) else None,

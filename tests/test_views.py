@@ -40,6 +40,74 @@ def test_message_view_plain() -> None:
     assert v["text"] == "hello"
     assert v["from"] is None
     assert v["media"] is None
+    assert v["rich"] is None  # 无富消息
+
+
+def _rich_text(t: str) -> types.SimpleNamespace:
+    return types.SimpleNamespace(text=t)
+
+
+def test_rich_text_rendering() -> None:
+    """RichText 树递归渲染:TextConcat/样式/URL。"""
+    from kurigram_mcp.telegram.views import _rich_text
+
+    # TextConcat 直接拼
+    assert _rich_text(types.SimpleNamespace(texts=[_rich_text("a"), _rich_text("b")])) == "ab"
+    # 样式包装递归(TextItalic 形态:text 是 RichText 对象)
+    assert _rich_text(types.SimpleNamespace(text=_rich_text("x"))) == "x"
+    # TextUrl:text + url(&amp; 反转义)
+    url = types.SimpleNamespace(text=_rich_text("WIKI"), url="https://example.com&amp;x=1")
+    assert _rich_text(url) == "WIKI (https://example.com&x=1)"
+    # TextPlain
+    assert _rich_text(_rich_text("plain")) == "plain"
+    # None 安全
+    assert _rich_text(None) == ""
+
+
+def test_rich_message_view_extracts_blocks() -> None:
+    """guest bot 富消息:blocks → {text, blocks}。"""
+    from kurigram_mcp.telegram.views import _rich_message_view
+
+    rich = types.SimpleNamespace(
+        blocks=[
+            types.SimpleNamespace(
+                text=types.SimpleNamespace(
+                    texts=[_rich_text("你好！🌟 "), _rich_text("有什么想试试的？")]
+                )
+            ),
+            types.SimpleNamespace(
+                text=types.SimpleNamespace(
+                    text=types.SimpleNamespace(
+                        texts=[
+                            _rich_text("No chat history. "),
+                            types.SimpleNamespace(
+                                text=_rich_text("Add me to the chat"),
+                                url="https://t.me/mira?x=1&amp;y=2",
+                            ),
+                        ]
+                    )
+                )
+            ),
+        ]
+    )
+    v = _rich_message_view(types.SimpleNamespace(rich_message=rich))
+    assert v is not None
+    assert v["text"] == "你好！🌟 有什么想试试的？\nNo chat history. Add me to the chat (https://t.me/mira?x=1&y=2)"
+    assert len(v["blocks"]) == 2
+    # 无 rich_message → None
+    assert _rich_message_view(types.SimpleNamespace(rich_message=None)) is None
+
+
+def test_message_view_with_rich() -> None:
+    """message_view 透出 rich 字段。"""
+    rich = types.SimpleNamespace(
+        blocks=[types.SimpleNamespace(text=types.SimpleNamespace(texts=[_rich_text("AI 内容")]))]
+    )
+    msg = make_msg(text=None)
+    msg.raw = types.SimpleNamespace(rich_message=rich)
+    v = message_view(msg)
+    assert v["text"] is None  # 普通文本为空
+    assert v["rich"]["text"] == "AI 内容"
 
 
 def test_message_view_with_sender_and_media() -> None:

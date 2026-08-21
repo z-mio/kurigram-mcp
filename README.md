@@ -100,6 +100,10 @@ km run                   # every tool now accepts account="alice" / account="bob
 | ⏱️ Events   | `wait_for_update`(谓词含 `is_media` / `media_type`), `drain_updates`                                                                                                                                                                                                         |
 | 🔬 Deep    | `raw_invoke`, `list_raw_methods`, `get_raw_method_info`                                                                                                                                                                                                                      |
 
+> 💡 **Rich messages**: message views (`get_messages`, `get_chat_history`, event payloads) include a `rich`
+> field (`{text, blocks}`) for rich-message content — guest bots (e.g. @mira) deliver AI replies as rich
+> messages with empty plain `text`, so read `rich.text` to get the actual reply.
+
 ## 🔌 Client Setup
 
 ```bash

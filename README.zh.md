@@ -93,6 +93,9 @@ km run                   # 之后每个工具都可传 account="alice" / account
 | ⏱️  事件 | `wait_for_update`(谓词含 `is_media` / `media_type`)、`drain_updates`                                                                                                                                                                                                         |
 | 🔬 深度 | `raw_invoke`、`list_raw_methods`、`get_raw_method_info`                                                                                                                                                                                                                      |
 
+> 💡 **富消息**:消息视图(`get_messages` / `get_chat_history` / 事件 payload)带 `rich` 字段(`{text, blocks}`)。
+> guest bot(如 @mira)的 AI 回复以富消息下发,普通 `text` 为空 —— 读 `rich.text` 即可拿到实际回复内容。
+
 ## 🔌 客户端接入
 
 ```bash
