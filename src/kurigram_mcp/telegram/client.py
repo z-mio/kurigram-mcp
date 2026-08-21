@@ -107,7 +107,6 @@ class TelegramClient:
 
     async def start(self) -> None:
         """连接并校验会话;会话文件缺失时明确报错,绝不静默进入交互式登录。"""
-        self.settings.migrate_session_file()  # 旧位置(session_dir 根)自动迁移到 sessions/
         if not self.session_file.exists():
             raise McpError(
                 SESSION_INVALID,

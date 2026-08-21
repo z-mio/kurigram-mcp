@@ -56,11 +56,6 @@ def _session_file(settings: Settings, api_id: int) -> Path:
     return settings.sessions_dir / f"u_{api_id}.session"
 
 
-def _legacy_session_file(settings: Settings, api_id: int) -> Path:
-    """旧布局:session_dir 根下的会话文件(2026-08 前)。"""
-    return Path(settings.session_dir) / f"u_{api_id}.session"
-
-
 # ---- 查询 ----
 
 def list_sessions(settings: Settings) -> list[dict]:
@@ -254,12 +249,6 @@ def remove_session(settings: Settings, name: str, force: bool = False) -> dict:
     if target and target.exists():
         target.unlink()
         deleted_file = True
-    # 旧布局(session_dir 根)残留文件一并清理
-    if isinstance(api_id, int):
-        legacy = _legacy_session_file(settings, api_id)
-        if legacy.exists():
-            legacy.unlink()
-            deleted_file = True
     logger.info("已删除账号 '{}' (api_id={}) 会话文件删除={}", name, api_id, deleted_file)
     return {"name": name, "api_id": api_id, "session_file": str(target), "deleted_file": deleted_file}
 

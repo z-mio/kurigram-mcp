@@ -13,10 +13,8 @@
 from __future__ import annotations
 
 import os
-import shutil
 from pathlib import Path
 
-from loguru import logger
 from pydantic import BaseModel, Field
 from pydantic_settings import (
     BaseSettings,
@@ -147,22 +145,6 @@ class Settings(BaseSettings):
         """确保数据/会话目录存在(登录与服务器启动时调用)。"""
         Path(self.session_dir).mkdir(parents=True, exist_ok=True)
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
-
-    def migrate_session_file(self) -> bool:
-        """把旧位置(session_dir 根下 u_{api_id}.session)迁移到 sessions/ 子目录。
-
-        幂等:新位置已存在或旧文件不存在时直接返回 False。
-        """
-        target = self.session_file
-        if target.exists() or not self.api_id:
-            return False
-        legacy = Path(self.session_dir) / f"u_{self.api_id}.session"
-        if not legacy.exists():
-            return False
-        self.ensure_dirs()
-        shutil.move(str(legacy), str(target))
-        logger.info("会话文件已迁移: {} -> {}", legacy, target)
-        return True
 
     def require_credentials(self) -> None:
         if not self.api_id or not self.api_hash:

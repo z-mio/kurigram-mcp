@@ -451,7 +451,6 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("restart", help="重启运行中的服务器(账号/白名单改动后生效)")
 
     sub.add_parser("setup", help="交互式配置向导:生成 ~/.kurigram-mcp/config")
-    sub.add_parser("auth", help="(已移除)请用 `session add`")
 
     return parser
 
@@ -470,10 +469,6 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "setup":
         return run_setup()
-
-    if args.command == "auth":
-        logger.error("`auth` 已移除:请用 `km session add <name>` 注册并登录账号")
-        return 1
 
     if args.command == "status":
         return _cmd_status(settings)

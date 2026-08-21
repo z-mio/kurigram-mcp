@@ -350,16 +350,6 @@ def test_remove_named_session_deletes_file(home):
     assert data["api_id"] == 111  # 顶层不受影响
 
 
-def test_remove_deletes_legacy_session_file_too(home):
-    """旧布局(session_dir 根)残留会话文件在 remove 时一并清理。"""
-    legacy = home / "u_222.session"
-    legacy.write_text("fake")
-    _write_config(home, {"sessions": {"alice": {"name": "alice", "api_id": 222, "api_hash": "h222"}}})
-    result = remove_session(_settings(), "alice", force=True)
-    assert result["deleted_file"] is True
-    assert not legacy.exists()
-
-
 def test_remove_default_clears_top_level(home):
     session_file = home / "sessions" / "u_111.session"
     session_file.parent.mkdir(parents=True)
@@ -439,37 +429,10 @@ def test_list_sessions_empty(home):
     assert list_sessions(_settings()) == []
 
 
-# ---- 会话文件目录布局与迁移 ----
+# ---- 会话文件目录布局 ----
 
 def test_session_file_under_sessions_dir(home):
     _write_config(home, {"api_id": 111, "api_hash": "h111"})
     s = _settings()
     assert s.session_file == home / "sessions" / "u_111.session"
-    assert s.downloads_dir == home / "downloads"  # 下载目录不动
-
-
-def test_migrate_session_file_moves_legacy(home):
-    _write_config(home, {"api_id": 111, "api_hash": "h111"})
-    legacy = home / "u_111.session"
-    legacy.write_text("fake-session")
-    s = _settings()
-    assert s.migrate_session_file() is True
-    assert not legacy.exists()
-    assert (home / "sessions" / "u_111.session").read_text() == "fake-session"
-
-
-def test_migrate_session_file_idempotent(home):
-    _write_config(home, {"api_id": 111, "api_hash": "h111"})
-    s = _settings()
-    # 新位置已存在 → 不动旧文件
-    s.sessions_dir.mkdir(parents=True)
-    (s.sessions_dir / "u_111.session").write_text("new")
-    legacy = home / "u_111.session"
-    legacy.write_text("old")
-    assert s.migrate_session_file() is False
-    assert legacy.exists()
-    assert (s.sessions_dir / "u_111.session").read_text() == "new"
-    # 都没有 → False
-    legacy.unlink()
-    (s.sessions_dir / "u_111.session").unlink()
-    assert s.migrate_session_file() is False
+    assert s.downloads_dir == home / "downloads"
