@@ -163,11 +163,16 @@ def _cmd_session(settings: Settings, args: argparse.Namespace) -> int:
     name_w = max([_disp_width("账号")] + [_disp_width(x[0]) for x in data_rows])
     api_w = max([_disp_width("API_ID")] + [_disp_width(x[1]) for x in data_rows])
     st_w = max([_disp_width("登录状态")] + [_disp_width(x[2]) for x in data_rows])
+    # 舒适间距:每列最小宽度 + 列间双空格
+    name_w = max(name_w, 10)
+    api_w = max(api_w, 12)
+    st_w = max(st_w, 20)
+    gap = "  "
 
-    print(f"{_pad('账号', name_w)} {_pad('API_ID', api_w)} {_pad('登录状态', st_w)}")
-    print("-" * (name_w + api_w + st_w + 2))
+    print(f"{_pad('账号', name_w)}{gap}{_pad('API_ID', api_w)}{gap}{_pad('登录状态', st_w)}")
+    print("-" * (name_w + api_w + st_w + len(gap) * 2))
     for name, api_id, status, extras in data_rows:
-        print(f"{_pad(name, name_w)} {_pad(api_id, api_w)} {_pad(status, st_w)}{extras}")
+        print(f"{_pad(name, name_w)}{gap}{_pad(api_id, api_w)}{gap}{_pad(status, st_w)}{extras}")
     return 0
 
 
