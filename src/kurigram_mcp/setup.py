@@ -1,7 +1,8 @@
 """交互式配置:引导生成 ~/.kurigram-mcp/config.yaml。
 
-不需要用户手动编辑文件;重复运行会保留已有值作为默认;
-AUTH_TOKEN 留空时自动生成随机 token(默认启用 Bearer 鉴权)。
+只问真正需要人决策的项(凭据/白名单/代理);host/port/AUTH_TOKEN 用默认值
+或保留已有值,不打扰用户。配置完成后直接进入登录向导(登录 default 账号),
+可选择启动服务器。
 """
 
 from __future__ import annotations
@@ -29,12 +30,31 @@ def _load_existing(path: Path) -> dict:
 
 def _ask(prompt: str, default: str | None = None, secret: bool = False) -> str:
     """交互输入;空输入返回默认值。"""
-    if default:
-        prompt = f"{prompt} [默认: {default}]"
-    value = input(f"{prompt}: ").strip()
-    if not value and default:
-        return default
-    return value
+    label = f"{prompt} [默认: {default}]" if default else prompt
+    try:
+        if secret:
+            import getpass
+
+            value = getpass.getpass(label + ": ").strip()
+            print()
+        else:
+            value = input(label + ": ").strip()
+    except (EOFError, KeyboardInterrupt):
+        raise SystemExit(1) from None
+    return value if value else (default or "")
+
+
+def _confirm(prompt: str, default: bool = True) -> bool:
+    suffix = "[Y/n]" if default else "[y/N]"
+    while True:
+        answer = input(f"{prompt} {suffix}: ").strip().lower()
+        if not answer:
+            return default
+        if answer in ("y", "yes"):
+            return True
+        if answer in ("n", "no"):
+            return False
+        print("✗ 请输入 y 或 n")
 
 
 def run_setup() -> int:
@@ -55,16 +75,12 @@ def run_setup() -> int:
         existing.get("allowed_chat_ids"),
     )
     proxy = _ask("PROXY(可选,如 socks5://127.0.0.1:1080)", existing.get("proxy"))
-    host = _ask("HOST(默认 127.0.0.1)", existing.get("host", "127.0.0.1"))
-    port = _ask("PORT(默认 8765)", existing.get("port") and str(existing["port"]))
 
-    # AUTH_TOKEN:留空自动生成(默认开启 Bearer 鉴权)
-    existing_token = existing.get("auth_token")
-    token_input = _ask("AUTH_TOKEN(留空自动生成)", existing_token, secret=True)
-    auth_token = token_input or (existing_token or secrets.token_urlsafe(24))
-    if not token_input and not existing_token:
+    # host/port/AUTH_TOKEN 不再询问:保留已有值或默认(AUTH_TOKEN 自动生成)
+    existing_token = existing.get("auth_token") or secrets.token_urlsafe(24)
+    if not existing.get("auth_token"):
         print(
-            f"\n🔑 已自动生成 AUTH_TOKEN:\n   {auth_token}\n   请复制到客户端配置(Authorization: Bearer {auth_token})"
+            f"\n🔑 已自动生成 AUTH_TOKEN:\n   {existing_token}\n   请复制到客户端配置(Authorization: Bearer {existing_token})"
         )
 
     data = {
@@ -72,9 +88,9 @@ def run_setup() -> int:
         "api_hash": api_hash,
         "allowed_chat_ids": allowed,
         "proxy": proxy,
-        "host": host,
-        "port": int(port) if port else 8765,
-        "auth_token": auth_token,
+        "host": existing.get("host", "127.0.0.1"),
+        "port": existing.get("port", 8765),
+        "auth_token": existing_token,
         "strict_whitelist": bool(existing.get("strict_whitelist", False)),
     }
     cfg_path.write_text(
@@ -85,19 +101,40 @@ def run_setup() -> int:
 
     logger.success("配置已写入 {}", cfg_path)
     if not data["api_id"] or not data["api_hash"]:
-        logger.warning("API_ID / API_HASH 未填写,请补全后继续;之后可运行 `kurigram-mcp auth` 登录")
+        logger.warning("API_ID / API_HASH 未填写;之后可运行 `km session add default` 时补全")
         return 1
 
-    # 一键登录:配置完成后直接进入 auth 交互
-    choice = input("\n是否立即进行 Telegram 登录(auth)?[Y/n]: ").strip().lower()
-    if choice in ("", "y", "yes"):
-        import asyncio
+    # 直接进入登录向导(登录 default 账号)
+    print("\n=== 登录默认账号(default)===\n")
+    if not _confirm("现在登录 default 账号?", default=True):
+        print("\n稍后运行 `km session add default` 完成登录")
+        return 0
 
-        from .auth import run_auth
-        from .config import Settings
+    import asyncio
 
-        print("\n=== 开始登录(手机号 -> 验证码 -> 2FA)===\n")
-        return asyncio.run(run_auth(Settings()))
+    from .auth import login
+    from .config import Settings
+    from .sessions import make_me_snapshot, update_me
 
-    print("\n稍后运行 `kurigram-mcp auth` 完成登录")
+    result = asyncio.run(login(Settings(account_name="default")))
+    if not result["ok"]:
+        logger.error("登录失败: {}", result["reason"])
+        logger.info("配置已保存;稍后运行 `km session add default` 重试")
+        return 1
+    update_me(
+        Settings(account_name="default"),
+        make_me_snapshot(**result["me"]),
+    )
+    logger.success(
+        "登录成功: {} (@{}) dc={}",
+        result["me"]["first_name"],
+        result["me"]["username"] or "?",
+        result["me"]["dc"],
+    )
+
+    if _confirm("启动服务器?", default=True):
+        from .serverctl import spawn_server
+
+        spawn_server()
+        print("服务器启动中: http://127.0.0.1:8765/mcp(日志 /tmp/kurigram-server.log)")
     return 0

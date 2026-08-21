@@ -73,7 +73,7 @@ def build_server(settings: Settings, accounts: list[str] | None = None) -> MCPSe
         if not clients:
             raise McpError(
                 ACCOUNT_NOT_FOUND,
-                "没有可用的已登录账号;请先运行 `kurigram-mcp auth <name>` 完成登录",
+                "没有可用的已登录账号;请先运行 `kurigram-mcp session add <name>` 完成登录",
             )
         default = names[0] if names[0] in clients else next(iter(clients))
         state = ServerState(clients=clients, accesses=accesses, default=default, started_at=time.monotonic())

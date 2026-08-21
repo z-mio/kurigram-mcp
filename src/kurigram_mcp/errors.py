@@ -44,7 +44,7 @@ def to_mcp_error(exc: Exception) -> McpError:
     if isinstance(exc, Unauthorized):
         return McpError(
             SESSION_INVALID,
-            "Telegram 会话已失效(登录状态过期),请重新运行 `kurigram-mcp auth`",
+            "Telegram 会话已失效(登录状态过期),请重新运行 `kurigram-mcp session add`",
             {"rpc_name": getattr(exc, "x", None)},
         )
     if isinstance(exc, RPCError):

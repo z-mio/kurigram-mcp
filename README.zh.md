@@ -31,18 +31,23 @@
 # 1. 安装(提供 kurigram-mcp 与 km 两个命令)
 uv tool install kurigram-mcp
 
-# 2. 一次性配置:API_ID / API_HASH / 白名单 / 代理 / 端口
-#    AUTH_TOKEN 留空会自动生成(Bearer 鉴权默认开启)
+# 2. 一次性配置:API_ID / API_HASH / 白名单 / 代理
+#    AUTH_TOKEN 自动生成(Bearer 鉴权默认开启);配置完直接进入登录
 km setup
 
-# 3. 登录(setup 中已登录可跳过):手机号 → 验证码 → 2FA
-km auth
+# 3. 随时添加账号 —— 添加即登录
+km session add          # 交互向导:账号名 → 凭据 → 白名单 → 手机号 → 验证码 → 2FA
 
 # 4. 启动服务器
 km run     # 默认 http://127.0.0.1:8765/mcp
+
+# 5. 总览与生效
+km status               # 服务器状态 + 账号表,一眼看完
+km restart              # 重启运行中的服务器(账号/白名单改动后生效)
 ```
 
 > 在 [my.telegram.org/apps](https://my.telegram.org/apps) 获取 `API_ID` / `API_HASH`。登录必须由你本人完成——凭据永远不会离开你的机器。
+> `km session add` **登录失败 = 添加失败,不记录该账号**;对已有账号重跑会自动验证(服务器在线即会话有效)或重新登录。
 
 ## 👥 多账号会话
 
@@ -51,23 +56,19 @@ km run     # 默认 http://127.0.0.1:8765/mcp
 `account` 参数**:
 
 ```bash
-# 1. 注册账号(凭据写入 ~/.kurigram-mcp/config.yaml)
-km session add alice --api-id 11111111 --api-hash abc... --allowed-chat-ids "-1001234567890"
-km session add bob   --api-id 22222222 --api-hash def...
+# 1. 逐个添加账号 —— 注册即登录(登录失败不记录)
+km session add alice    # 交互向导;凭据默认复用 setup 的应用,回车即过
+km session add bob
 
-# 2. 逐个登录(手机号 → 验证码 → 2FA)
-km auth alice
-km auth bob
-
-# 3. 离线查看登录状态(缓存身份,无需联网)
+# 2. 离线查看登录状态(缓存身份,无需联网)
 km session list          # 加 -v 显示 proxy/白名单详情
 
-# 4. 之后修改账号的白名单/代理(重启服务器生效)
+# 3. 之后修改账号的白名单/代理(重启服务器生效)
 km session set alice --allowed-chat-ids="-1001234567890,@mybot,me"   # 注意:负号开头的值用 `=` 传参
 km session set alice --allowed-chat-ids ""   # 清空 → 回退全局白名单
 km session set bob --proxy socks5://127.0.0.1:1080   # 或 --proxy "" 清除
 
-# 5. 只启动一个服务器 —— 所有已登录账号一起连上
+# 4. 只启动一个服务器 —— 所有已登录账号一起连上
 km run                   # 之后每个工具都可传 account="alice" / account="bob"
 ```
 
@@ -77,7 +78,9 @@ km run                   # 之后每个工具都可传 account="alice" / account
 - `km run --account alice` 可启动单账号服务器(隔离模式);未登录的账号启动时警告跳过。
 - 旧式单账号配置(顶层 `api_id`)即隐式账号 **`default`** —— 现有配置零迁移。
 - 每账号 `--allowed-chat-ids` 覆盖全局白名单;未设置的账号回退全局 `allowed_chat_ids`。
-- 多账号时 `km auth` 不带名字会交互式选择;`mcp_get_server_info` 列出所有已连接账号。
+- 对已有账号重跑 `km session add <name>`:服务器在线 ⇒ 会话正常;否则验证会话文件,失效则重新登录
+  (失败时配置/白名单/旧会话原样保留,不删任何东西)。
+- `mcp_get_server_info` 列出所有已连接账号。
 
 ## 🧰 工具 (34 个)
 

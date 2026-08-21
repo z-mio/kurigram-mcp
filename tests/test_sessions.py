@@ -11,12 +11,14 @@ import yaml
 from kurigram_mcp.config import DEFAULT_ACCOUNT, Settings
 from kurigram_mcp.errors import ACCOUNT_NOT_FOUND, McpError
 from kurigram_mcp.sessions import (
-    add_session,
+    discard_failed_session,
     list_sessions,
     make_me_snapshot,
+    register_session,
     remove_session,
     set_session,
     update_me,
+    validate_new_session,
 )
 
 
@@ -183,7 +185,7 @@ def test_resolve_default_without_top_level(home):
 
 def test_add_session_creates_config(home):
     s = _settings()  # 无 config
-    result = add_session(s, "alice", 222, "h222", allowed_chat_ids="123")
+    result = register_session(s, "alice", 222, "h222", allowed_chat_ids="123")
     assert result["session_file"].endswith("u_222.session")
     assert Path(result["session_file"]).parent.name == "sessions"  # 新布局:sessions/ 子目录
     cfg = home / "config.yaml"
@@ -197,7 +199,7 @@ def test_add_session_creates_config(home):
 
 def test_add_session_preserves_existing_keys(home):
     _write_config(home, {"api_id": 111, "api_hash": "h111", "auth_token": "tok", "port": 9000})
-    add_session(_settings(), "alice", 222, "h222")
+    register_session(_settings(), "alice", 222, "h222")
     data = yaml.safe_load((home / "config.yaml").read_text())
     assert data["auth_token"] == "tok"
     assert data["port"] == 9000
@@ -211,11 +213,11 @@ def test_add_session_preserves_existing_keys(home):
 def test_add_session_bad_name(home, name):
     s = _settings()
     with pytest.raises(McpError):
-        add_session(s, name, 222, "h222")
+        register_session(s, name, 222, "h222")
 
 
 def test_add_session_trims_name(home):
-    result = add_session(_settings(), "  alice  ", 222, "h222")
+    result = register_session(_settings(), "  alice  ", 222, "h222")
     assert result["name"] == "alice"
     data = yaml.safe_load((home / "config.yaml").read_text())
     assert "alice" in data["sessions"]
@@ -224,24 +226,24 @@ def test_add_session_trims_name(home):
 def test_add_session_duplicates(home):
     _write_config(home, {"api_id": 111, "api_hash": "h111"})
     s = _settings()
-    add_session(s, "alice", 222, "h222")
+    register_session(s, "alice", 222, "h222")
     # 重名
     with pytest.raises(McpError) as ei:
-        add_session(s, "alice", 333, "h333")
+        register_session(s, "alice", 333, "h333")
     assert "已存在" in ei.value.message
     # api_id 与顶层重复
     with pytest.raises(McpError) as ei:
-        add_session(s, "bob", 111, "h333")
+        register_session(s, "bob", 111, "h333")
     assert "重复" in ei.value.message
     # api_id 与已有会话重复
     with pytest.raises(McpError) as ei:
-        add_session(s, "bob", 222, "h333")
+        register_session(s, "bob", 222, "h333")
     assert "重复" in ei.value.message
 
 
 def test_add_session_requires_hash(home):
     with pytest.raises(McpError):
-        add_session(_settings(), "alice", 222, "  ")
+        register_session(_settings(), "alice", 222, "  ")
 
 
 # ---- session set ----
@@ -300,6 +302,37 @@ def test_set_session_none_keeps_values(home):
     assert result["allowed_chat_ids"] == "1"
     data = yaml.safe_load((home / "config.yaml").read_text())
     assert data["sessions"]["alice"]["allowed_chat_ids"] == "1"
+
+
+# ---- 登录失败清理 ----
+
+def test_validate_new_session_rejects_duplicate(home):
+    _write_config(home, {"api_id": 111, "api_hash": "h111"})
+    s = _settings()
+    register_session(s, "alice", 222, "h222")
+    # 重名
+    with pytest.raises(McpError) as ei:
+        validate_new_session(s, "alice", 333, "h333")
+    assert "已存在" in ei.value.message
+    # 重复 api_id(与 alice)
+    with pytest.raises(McpError) as ei:
+        validate_new_session(s, "bob", 222, "h333")
+    assert "重复" in ei.value.message
+    # 重复 api_id(与顶层 default)
+    with pytest.raises(McpError) as ei:
+        validate_new_session(s, "bob", 111, "h333")
+    assert "重复" in ei.value.message
+
+
+def test_discard_failed_session_removes_files(home):
+    _write_config(home, {"api_id": 111, "api_hash": "h111"})
+    s = _settings()
+    s.sessions_dir.mkdir(parents=True)
+    (s.sessions_dir / "u_222.session").write_text("half")
+    (s.sessions_dir / "u_222.session-journal").write_text("journal")
+    discard_failed_session(s, 222)
+    assert not (s.sessions_dir / "u_222.session").exists()
+    assert not (s.sessions_dir / "u_222.session-journal").exists()
 
 
 # ---- session remove ----

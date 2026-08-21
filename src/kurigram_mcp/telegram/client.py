@@ -111,7 +111,7 @@ class TelegramClient:
         if not self.session_file.exists():
             raise McpError(
                 SESSION_INVALID,
-                f"未找到会话文件 {self.session_file};请先运行 `kurigram-mcp auth` 完成登录",
+                f"未找到会话文件 {self.session_file};请先运行 `kurigram-mcp session add` 完成登录",
             )
         self.settings.require_credentials()
         self.settings.ensure_dirs()

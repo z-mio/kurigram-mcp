@@ -99,15 +99,16 @@ def list_sessions(settings: Settings) -> list[dict]:
 
 # ---- 增删 ----
 
-def add_session(
+def validate_new_session(
     settings: Settings,
     name: str,
     api_id: int,
     api_hash: str,
-    proxy: str | None = None,
-    allowed_chat_ids: str = "",
-) -> dict:
-    """注册一个新账号。校验:名字格式/保留字/重名/重复 api_id。"""
+) -> None:
+    """校验新账号参数(名字格式/保留字/重名/重复 api_id);不合法抛 McpError。
+
+    登录前调用:避免用户白输一遍手机号验证码。
+    """
     name = name.strip()
     if not _NAME_RE.match(name):
         raise McpError(
@@ -122,15 +123,30 @@ def add_session(
         raise McpError(ACCOUNT_NOT_FOUND, "API_HASH 不能为空")
 
     data = load_raw()
-    sessions = data.setdefault("sessions", {})
+    sessions = data.get("sessions") or {}
     if name in sessions:
-        raise McpError(ACCOUNT_NOT_FOUND, f"账号 '{name}' 已存在;如需更换凭据请先 `session remove {name}`")
+        raise McpError(ACCOUNT_NOT_FOUND, f"账号 '{name}' 已存在;重新登录请直接 `session add {name}`")
     taken_ids = {s.get("api_id") for s in sessions.values() if isinstance(s, dict) and s.get("api_id")}
     if settings.api_id:
         taken_ids.add(settings.api_id)
     if api_id in taken_ids:
         raise McpError(ACCOUNT_NOT_FOUND, f"API_ID {api_id} 已被其他账号使用,不能重复注册")
 
+
+def register_session(
+    settings: Settings,
+    name: str,
+    api_id: int,
+    api_hash: str,
+    proxy: str | None = None,
+    allowed_chat_ids: str = "",
+) -> dict:
+    """登录成功后把账号写入注册表(不登录;登录由 auth.login 负责)。"""
+    validate_new_session(settings, name, api_id, api_hash)
+    name = name.strip()
+
+    data = load_raw()
+    sessions = data.setdefault("sessions", {})
     sessions[name] = {
         "name": name,
         "api_id": api_id,
@@ -140,6 +156,17 @@ def add_session(
     }
     save_raw(data)
     return {"name": name, "api_id": api_id, "session_file": str(_session_file(settings, api_id))}
+
+
+def discard_failed_session(settings: Settings, api_id: int) -> None:
+    """登录失败后清理:删除半成品会话文件(含日志),注册表未写入所以无需改动。"""
+    target = _session_file(settings, api_id)
+    for path in (target, Path(str(target) + "-journal")):
+        try:
+            if path.exists():
+                path.unlink()
+        except OSError:
+            logger.debug("清理半成品会话文件失败: {}", path)
 
 
 def set_session(

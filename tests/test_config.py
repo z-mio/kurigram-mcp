@@ -99,12 +99,16 @@ def test_yaml_config_loading(monkeypatch, tmp_path) -> None:
 
 
 def test_setup_generates_yaml_with_token(monkeypatch, tmp_path, capsys) -> None:
-    """setup 生成 YAML 配置;AUTH_TOKEN 留空自动生成。"""
+    """setup 生成 YAML 配置;AUTH_TOKEN 自动生成;host/port 不再询问。"""
+    import getpass
+
     import kurigram_mcp.setup as setup_mod
 
     monkeypatch.setenv("KURIGRAM_MCP_HOME", str(tmp_path))
-    inputs = iter(["12345", "hash_value", "6540476263", "", "127.0.0.1", "8765", "", "n"])
+    # api_id, api_hash(secret), 白名单, 代理, 登录?=n
+    inputs = iter(["12345", "hash_value", "6540476263", "", "n"])
     monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+    monkeypatch.setattr(getpass, "getpass", lambda prompt="": next(inputs))
     monkeypatch.setattr(setup_mod, "home_dir", lambda: tmp_path)
 
     rc = setup_mod.run_setup()
@@ -119,27 +123,43 @@ def test_setup_generates_yaml_with_token(monkeypatch, tmp_path, capsys) -> None:
     assert data["allowed_chat_ids"] == "6540476263"
     assert data["auth_token"]  # 自动生成
     assert len(data["auth_token"]) >= 20
+    assert data["host"] == "127.0.0.1"  # 不再询问,取默认
+    assert data["port"] == 8765
     out = capsys.readouterr().out
     assert "自动生成" in out  # 提示用户复制 token
 
 
-def test_setup_y_enters_auth(monkeypatch, tmp_path) -> None:
-    """setup 结尾选 y → 直接进入 auth。"""
+def test_setup_y_enters_login(monkeypatch, tmp_path) -> None:
+    """setup 结尾选 y → 进入登录向导并写入身份快照。"""
+    import getpass
+
     import kurigram_mcp.setup as setup_mod
 
     monkeypatch.setenv("KURIGRAM_MCP_HOME", str(tmp_path))
-    inputs = iter(["12345", "hash_value", "6540476263", "", "127.0.0.1", "8765", "", "y"])
+    # api_id, api_hash(secret), 白名单, 代理, 登录?=y, 启动服务器?=n
+    inputs = iter(["12345", "hash_value", "6540476263", "", "y", "n"])
     monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+    monkeypatch.setattr(getpass, "getpass", lambda prompt="": next(inputs))
     monkeypatch.setattr(setup_mod, "home_dir", lambda: tmp_path)
 
-    called = {"auth": False}
+    called = {"login": False}
 
-    async def fake_auth(settings):
-        called["auth"] = True
-        return 7
+    async def fake_login(settings, phone=None):
+        called["login"] = True
+        return {
+            "ok": True,
+            "reason": None,
+            "me": {"first_name": "Tester", "username": "t_user", "dc": 5},
+            "dc": 5,
+        }
 
-    monkeypatch.setattr("kurigram_mcp.auth.run_auth", fake_auth)
+    monkeypatch.setattr("kurigram_mcp.auth.login", fake_login)
 
     rc = setup_mod.run_setup()
-    assert rc == 7  # auth 的返回值透传
-    assert called["auth"]
+    assert rc == 0
+    assert called["login"]
+    import yaml
+
+    data = yaml.safe_load((tmp_path / "config.yaml").read_text())
+    assert data["me"]["first_name"] == "Tester"  # 身份快照已写入
+    assert data["me"]["username"] == "t_user"

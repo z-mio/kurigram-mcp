@@ -31,19 +31,24 @@
 # 1. Install (provides `kurigram-mcp` and the `km` alias)
 uv tool install kurigram-mcp
 
-# 2. One-time setup: API_ID / API_HASH / whitelist / proxy / port
-#    AUTH_TOKEN is auto-generated if left blank (Bearer auth on by default)
+# 2. One-time setup: API_ID / API_HASH / whitelist / proxy
+#    AUTH_TOKEN is auto-generated (Bearer auth on by default); setup ends with login
 km setup
 
-# 3. Log in (skip if you chose to during setup): phone → code → 2FA
-km auth
+# 3. Log in at any time — adding an account *is* logging in
+km session add          # interactive wizard: name → credentials → whitelist → phone → code → 2FA
 
 # 4. Start the server
 km run     # default: http://127.0.0.1:8765/mcp
+
+# 5. Overview & apply changes
+km status               # server state + account table in one glance
+km restart              # restart the running server (picks up account/whitelist changes)
 ```
 
 > Get `API_ID` / `API_HASH` from [my.telegram.org/apps](https://my.telegram.org/apps). Login must be performed by you —
-> credentials never leave your machine.
+> credentials never leave your machine. `km session add` **fails (and records nothing) if login fails**;
+> re-running it on an existing account re-verifies (server online ⇒ session OK) or re-logs-in.
 
 ## 👥 Multi-Account Sessions
 
@@ -53,23 +58,19 @@ chat whitelist — then **all accounts live in one server**, and every tool take
 `account` parameter:
 
 ```bash
-# 1. Register accounts (credentials go into ~/.kurigram-mcp/config.yaml)
-km session add alice --api-id 11111111 --api-hash abc... --allowed-chat-ids "-1001234567890"
-km session add bob   --api-id 22222222 --api-hash def...
+# 1. Add each account — registering *is* logging in (login failure ⇒ nothing recorded)
+km session add alice    # interactive wizard; credentials can reuse the setup app by default
+km session add bob
 
-# 2. Log each one in (phone → code → 2FA)
-km auth alice
-km auth bob
-
-# 3. See login status offline (cached identity, no network needed)
+# 2. See login status offline (cached identity, no network needed)
 km session list          # add -v for proxy/whitelist details
 
-# 4. Edit an account's whitelist/proxy later (restart the server to apply)
+# 3. Edit an account's whitelist/proxy later (restart the server to apply)
 km session set alice --allowed-chat-ids="-1001234567890,@mybot,me"   # note: use `=` for values starting with `-`
 km session set alice --allowed-chat-ids ""   # clear → fall back to global whitelist
 km session set bob --proxy socks5://127.0.0.1:1080   # or --proxy "" to clear
 
-# 5. Start ONE server — all logged-in accounts connect together
+# 4. Start ONE server — all logged-in accounts connect together
 km run                   # every tool now accepts account="alice" / account="bob"
 ```
 
@@ -83,8 +84,10 @@ km run                   # every tool now accepts account="alice" / account="bob
   — existing setups keep working unchanged.
 - Per-account `--allowed-chat-ids` overrides the global whitelist for that account; accounts
   without their own whitelist fall back to the global `allowed_chat_ids`.
-- `km auth` with multiple accounts and no name shows an interactive picker;
-  `mcp_get_server_info` lists all connected accounts.
+- Re-running `km session add <name>` on an existing account: server online ⇒ session is fine;
+  otherwise it verifies the session file and re-logs-in if invalid (credentials/whitelist are kept
+  on failure — nothing is deleted).
+- `mcp_get_server_info` lists all connected accounts.
 
 ## 🧰 Tools (34)
 
