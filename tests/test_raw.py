@@ -64,7 +64,7 @@ def test_unauthorized_mapping() -> None:
 
     err = to_mcp_error(Unauthorized("SESSION_REVOKED"))
     assert err.code == SESSION_INVALID
-    assert "auth" in err.message.lower()
+    assert "session add" in err.message.lower()
 
 
 def test_parse_doc_get_chats() -> None:
