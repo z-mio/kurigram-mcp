@@ -11,6 +11,7 @@ import yaml
 from kurigram_mcp.config import DEFAULT_ACCOUNT, Settings
 from kurigram_mcp.errors import ACCOUNT_NOT_FOUND, McpError
 from kurigram_mcp.sessions import (
+    clear_me,
     discard_failed_session,
     list_sessions,
     make_me_snapshot,
@@ -398,6 +399,29 @@ def test_update_me_default(home):
     update_me(s.resolve_account(None), make_me_snapshot("Me", "me_user", 5))
     data = yaml.safe_load((home / "config.yaml").read_text())
     assert data["me"]["username"] == "me_user"
+
+
+# ---- 登录失效清除 ----
+
+def test_clear_me_named_account(home):
+    _write_config(
+        home,
+        {"sessions": {"alice": {"name": "alice", "api_id": 222, "api_hash": "h222", "me": {"first_name": "A"}}}},
+    )
+    s = _settings()
+    clear_me(s.resolve_account("alice"))
+    data = yaml.safe_load((home / "config.yaml").read_text())
+    assert "me" not in data["sessions"]["alice"]
+    assert data["sessions"]["alice"]["api_id"] == 222  # 账号定义保留
+
+
+def test_clear_me_default(home):
+    _write_config(home, {"api_id": 111, "api_hash": "h111", "me": {"first_name": "M"}})
+    s = _settings()
+    clear_me(s.resolve_account(None))
+    data = yaml.safe_load((home / "config.yaml").read_text())
+    assert "me" not in data
+    assert data["api_id"] == 111
 
 
 # ---- list_sessions ----

@@ -245,8 +245,7 @@ def _cmd_session_add(settings: Settings, args: argparse.Namespace) -> int:
     result = asyncio.run(login(tmp))
     if not result["ok"]:
         session_store.discard_failed_session(tmp, api_id)
-        logger.error("账号 '{}' 未添加(登录失败): {}", name, result["reason"])
-        logger.info("凭据未记录,半成品会话文件已清理;可重新运行 `km session add {}`", name)
+        logger.error("账号 '{}' 未添加: 登录失败, {};凭据与中间文件已清除,可重试 `km session add {}`", name, result["reason"], name)
         return 1
 
     session_store.register_session(
@@ -265,7 +264,7 @@ def _cmd_session_add(settings: Settings, args: argparse.Namespace) -> int:
 
 
 def _cmd_relogin(settings: Settings, acc: Settings) -> int:
-    """已有账号重登。"""
+    """已有账号重登;失败 = 会话失效,清除会话与身份快照,恢复未登录状态。"""
     name = acc.account_name or DEFAULT_ACCOUNT
     print(f"→ 重新登录 '{name}' ...")
     result = asyncio.run(login(acc))
@@ -280,7 +279,19 @@ def _cmd_relogin(settings: Settings, acc: Settings) -> int:
         )
         _maybe_restart(settings)
         return 0
-    logger.error("账号 '{}' 重新登录失败: {};可重试 `km session add {}`", name, result["reason"], name)
+    # 重登失败 = 旧会话已失效:清除会话文件与身份快照,恢复未登录状态
+    try:
+        if acc.session_file.exists():
+            acc.session_file.unlink()
+    except OSError as exc:
+        logger.debug("清除失效会话文件失败: {}", exc)
+    try:
+        from .sessions import clear_me
+
+        clear_me(acc)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("清除身份快照失败: {}", exc)
+    logger.error("账号 '{}' 重新登录失败: {};已清除失效会话,可重试 `km session add {}`", name, result["reason"], name)
     return 1
 
 

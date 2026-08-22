@@ -154,7 +154,7 @@ def register_session(
 
 
 def discard_failed_session(settings: Settings, api_id: int) -> None:
-    """登录失败后清理:删除半成品会话文件(含日志),注册表未写入所以无需改动。"""
+    """登录失败后清除半成品会话文件(含 journal)。"""
     target = _session_file(settings, api_id)
     for path in (target, Path(str(target) + "-journal")):
         try:
@@ -280,6 +280,20 @@ def update_me(settings: Settings, me: dict) -> None:
         entry = sessions.get(name)
         if entry and isinstance(entry, dict):
             entry["me"] = me
+    save_raw(data)
+
+
+def clear_me(settings: Settings) -> None:
+    """清除身份快照:登录失效后标记账号为未登录(default 清顶层 me,命名账号清 sessions[name].me)。"""
+    data = load_raw()
+    name = settings.account_name or DEFAULT_ACCOUNT
+    if name == DEFAULT_ACCOUNT:
+        data.pop("me", None)
+    else:
+        sessions = data.get("sessions") or {}
+        entry = sessions.get(name)
+        if entry and isinstance(entry, dict):
+            entry.pop("me", None)
     save_raw(data)
 
 
