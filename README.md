@@ -32,10 +32,10 @@
 uv tool install kurigram-mcp
 
 # 2. One-time setup: API_ID / API_HASH / whitelist / proxy
-#    AUTH_TOKEN is auto-generated (Bearer auth on by default); setup ends with login
+#    AUTH_TOKEN is auto-generated (Bearer auth on by default)
 km setup
 
-# 3. Log in at any time — adding an account *is* logging in
+# 3. Log in
 km session add          # interactive wizard: name → credentials → whitelist → phone → code → 2FA
 
 # 4. Start the server
@@ -47,8 +47,7 @@ km restart              # restart the running server (picks up account/whitelist
 ```
 
 > Get `API_ID` / `API_HASH` from [my.telegram.org/apps](https://my.telegram.org/apps). Login must be performed by you —
-> credentials never leave your machine. `km session add` **only records an account after a
-> successful login**; re-running it on an existing account re-verifies (server online ⇒ session OK) or re-logs-in.
+> credentials never leave your machine.
 
 ## 👥 Multi-Account Sessions
 
@@ -58,14 +57,14 @@ chat whitelist — then **all accounts live in one server**, and every tool take
 `account` parameter:
 
 ```bash
-# 1. Add each account — registering *is* logging in (login failure ⇒ nothing recorded)
+# 1. Add each account
 km session add alice    # interactive wizard; credentials can reuse the setup app by default
 km session add bob
 
-# 2. See login status offline (cached identity, no network needed)
+# 2. See login status
 km session list          # add -v for proxy/whitelist details
 
-# 3. Edit an account's whitelist/proxy later (restart the server to apply)
+# 3. Edit an account's whitelist / proxy
 km session set alice --allowed-chat-ids="-1001234567890,@mybot,me"   # note: use `=` for values starting with `-`
 km session set alice --allowed-chat-ids ""   # clear → fall back to global whitelist
 km session set bob --proxy socks5://127.0.0.1:1080   # or --proxy "" to clear
@@ -76,16 +75,10 @@ km run                   # every tool now accepts account="alice" / account="bob
 
 - Every tool (send, read, events, raw, `whoami`) accepts `account: <name>` — omit it to use
   the default account. Example: `send_message(account="alice")` → `wait_for_update(account="alice")`.
-- Event buses are per-account: `wait_for_update` / `expect_silent` / `drain_updates` only see
-  that account's events — ideal for orchestrating alice/bob/bot interactions in one flow.
-- `km run --account alice` starts a single-account server (isolation mode); un-logged-in
-  accounts are skipped with a warning.
-- The legacy single-account config (`api_id` at top level) is the implicit account **`default`**
-  — existing setups keep working unchanged.
+- `km run --account alice` starts a single-account server (isolation mode).
+- The legacy single-account config (`api_id` at top level) is the implicit account **`default`**.
 - Per-account `--allowed-chat-ids` overrides the global whitelist for that account; accounts
   without their own whitelist fall back to the global `allowed_chat_ids`.
-- Re-running `km session add <name>` on an existing account: server online ⇒ session is fine;
-  otherwise it verifies the session file and re-logs-in if invalid.
 - `mcp_get_server_info` lists all connected accounts.
 
 ## 🧰 Tools (34)
@@ -98,17 +91,6 @@ km run                   # every tool now accepts account="alice" / account="bob
 | 👥 Group   | `join_chat`, `leave_chat`                                                                                                                                                                                                                                                    |
 | ⏱️ Events   | `wait_for_update`(谓词含 `is_media` / `media_type`), `drain_updates`                                                                                                                                                                                                         |
 | 🔬 Deep    | `raw_invoke`, `list_raw_methods`, `get_raw_method_info`                                                                                                                                                                                                                      |
-
-## 💡 Debugging Tips
-
-- **Events only fire for messages from *others*** (bots / other users) — your own sent messages
-  never appear in `wait_for_update` / `drain_updates` (Telegram returns them inline in the send
-  response, not as pushes).
-- `wait_for_update` marks `event_stream_idle: true` when the server received zero events since
-  startup — use `get_chat_history` to tell "bot is silent" apart from "event stream broken".
-- Long waits (`wait_for_update`, `expect_silent`, `probe_bot`) need an MCP client with a
-  **read-timeout ≥ the tool timeout** (e.g. `timeout=None`); a default 5s HTTP timeout cuts
-  them off mid-wait.
 
 ## 🔌 Client Setup
 
@@ -142,9 +124,6 @@ http_headers = { "Authorization" = "Bearer <AUTH_TOKEN>" }
 1. **Per-account whitelist** — `km session add NAME --allowed-chat-ids "..."` (comma-separated:
    numeric chat ids, `@username`, `me`). Each account is isolated.
 2. **Global fallback** — config `allowed_chat_ids` applies to any account that didn't set its own.
-
-Fail-closed: chats outside the whitelist are rejected with `[NOT_WHITELISTED]`; `get_dialogs` only returns whitelisted
-chats; events from non-whitelisted chats are dropped before reaching the event bus.
 
 ## ⚙️ Configuration
 

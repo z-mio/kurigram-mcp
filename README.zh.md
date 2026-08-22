@@ -21,7 +21,7 @@
 | 🔌 **标准 MCP**   | Streamable HTTP 传输,2026-07-28 协议,向下兼容 2025-11-25 客户端 (Claude Code、Codex、DSH) |
 | 🧪 **Bot 调试**   | 发送 `/start`、测量回复延迟、等待事件、消费更新流                                         |
 | 🛠️ **深度调试**   | `raw_invoke` 调用任意 MTProto 函数,内置 API 发现                                          |
-| 🔒 **聊天白名单** | 账号级白名单 + 全局兜底,fail-closed                                                        |
+| 🔒 **聊天白名单** | 账号级白名单 + 全局兜底,fail-closed                                                       |
 | ⚡ **无状态**     | 服务器重启不影响已连接的客户端                                                            |
 | 🚀 **零配置**     | `uv tool install` + 交互式向导,一条命令登录                                               |
 
@@ -32,10 +32,10 @@
 uv tool install kurigram-mcp
 
 # 2. 一次性配置:API_ID / API_HASH / 白名单 / 代理
-#    AUTH_TOKEN 自动生成(Bearer 鉴权默认开启);配置完直接进入登录
+#    AUTH_TOKEN 自动生成(Bearer 鉴权默认开启)
 km setup
 
-# 3. 随时添加账号 —— 添加即登录
+# 3. 登录
 km session add          # 交互向导:账号名 → 凭据 → 白名单 → 手机号 → 验证码 → 2FA
 
 # 4. 启动服务器
@@ -47,23 +47,22 @@ km restart              # 重启运行中的服务器(账号/白名单改动后�
 ```
 
 > 在 [my.telegram.org/apps](https://my.telegram.org/apps) 获取 `API_ID` / `API_HASH`。登录必须由你本人完成——凭据永远不会离开你的机器。
-> `km session add` **登录成功才添加账号**;对已有账号重跑会自动验证(服务器在线即会话有效)或重新登录。
 
 ## 👥 多账号会话
 
-有些测试场景需要多个用户同时参与(比如群内 bot 的多人交互)。每个 Telegram 用户注册一个账号,
+有些测试场景需要多个用户同时参与 (比如群内 bot 的多人交互)。每个 Telegram 用户注册一个账号,
 各账号拥有独立的会话文件、可选代理与聊天白名单 —— **所有账号在一个服务器里,每个工具带
 `account` 参数**:
 
 ```bash
-# 1. 逐个添加账号 —— 注册即登录,登录成功才记录
+# 1. 逐个添加账号
 km session add alice    # 交互向导;凭据默认复用 setup 的应用,回车即过
 km session add bob
 
-# 2. 离线查看登录状态(缓存身份,无需联网)
+# 2. 查看登录状态
 km session list          # 加 -v 显示 proxy/白名单详情
 
-# 3. 之后修改账号的白名单/代理(重启服务器生效)
+# 3. 修改账号的白名单/代理
 km session set alice --allowed-chat-ids="-1001234567890,@mybot,me"   # 注意:负号开头的值用 `=` 传参
 km session set alice --allowed-chat-ids ""   # 清空 → 回退全局白名单
 km session set bob --proxy socks5://127.0.0.1:1080   # 或 --proxy "" 清除
@@ -72,13 +71,11 @@ km session set bob --proxy socks5://127.0.0.1:1080   # 或 --proxy "" 清除
 km run                   # 之后每个工具都可传 account="alice" / account="bob"
 ```
 
-- 所有工具(发送/读取/事件/raw/`whoami`)都接受 `account: <名字>` 参数;省略则用默认账号。
-  例:`send_message(account="alice")` → `wait_for_update(account="alice")` 接龙编排多用户场景。
-- 事件总线按账号隔离:`wait_for_update` / `expect_silent` / `drain_updates` 只看到该账号的事件。
-- `km run --account alice` 可启动单账号服务器(隔离模式);未登录的账号启动时警告跳过。
-- 旧式单账号配置(顶层 `api_id`)即隐式账号 **`default`** —— 现有配置零迁移。
+- 所有工具 (发送/读取/事件/raw/`whoami`)都接受 `account: <名字>` 参数;省略则用默认账号。 例:
+  `send_message(account="alice")` → `wait_for_update(account="alice")` 接龙编排多用户场景。
+- `km run --account alice` 可启动单账号服务器 (隔离模式)。
+- 旧式单账号配置 (顶层 `api_id`)即隐式账号 **`default`**。
 - 每账号 `--allowed-chat-ids` 覆盖全局白名单;未设置的账号回退全局 `allowed_chat_ids`。
-- 对已有账号重跑 `km session add <name>`:服务器在线 ⇒ 会话正常;否则验证会话文件,失效则重新登录。
 - `mcp_get_server_info` 列出所有已连接账号。
 
 ## 🧰 工具 (34 个)
@@ -91,15 +88,6 @@ km run                   # 之后每个工具都可传 account="alice" / account
 | 👥 群   | `join_chat`、`leave_chat`                                                                                                                                                                                                                                                    |
 | ⏱️  事件 | `wait_for_update`(谓词含 `is_media` / `media_type`)、`drain_updates`                                                                                                                                                                                                         |
 | 🔬 深度 | `raw_invoke`、`list_raw_methods`、`get_raw_method_info`                                                                                                                                                                                                                      |
-
-## 💡 调试提示
-
-- **事件只来自"他人"的消息**(bot / 其他用户)—— 自己发送的消息**不会**出现在
-  `wait_for_update` / `drain_updates` 里(Telegram 在发送响应中内联返回,不推送)。
-- 服务器启动以来零事件时,`wait_for_update` 会标记 `event_stream_idle: true` ——
-  用 `get_chat_history` 区分"bot 没回"和"事件流异常"。
-- 长等待工具(`wait_for_update` / `expect_silent` / `probe_bot`)需要 MCP 客户端
-  **读超时 ≥ 工具 timeout**(如 `timeout=None`);默认 5s HTTP 超时会中途切断等待。
 
 ## 🔌 客户端接入
 
@@ -130,12 +118,8 @@ http_headers = { "Authorization" = "Bearer <AUTH_TOKEN>" }
 
 ### 🔐 聊天白名单
 
-1. **账号级白名单** — `km session add NAME --allowed-chat-ids "..."`(逗号分隔:数字 chat_id、`@username`、`me`),
-   每账号互相隔离。
+1. **账号级白名单** — `km session add NAME --allowed-chat-ids "..."`(逗号分隔:数字 chat_id、`@username`、`me`), 每账号互相隔离。
 2. **全局兜底** — 配置 `allowed_chat_ids` 作用于未设置账号级白名单的账号。
-
-Fail-closed:白名单外的聊天一律拒绝,返回 `[NOT_WHITELISTED]`;`get_dialogs` 只返回白名单内的聊天;
-非白名单聊天的事件在进入事件总线前即被丢弃。
 
 ## ⚙️ 配置
 
