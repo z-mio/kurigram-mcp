@@ -6,7 +6,6 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 # 错误码(稳定契约,工具文档引用)
 NOT_WHITELISTED = "NOT_WHITELISTED"
-CHAT_NOT_FOUND = "CHAT_NOT_FOUND"
 FLOOD_WAIT = "FLOOD_WAIT"
 SESSION_INVALID = "SESSION_INVALID"
 ACCOUNT_NOT_FOUND = "ACCOUNT_NOT_FOUND"

@@ -1,8 +1,8 @@
 """交互式配置:引导生成 ~/.kurigram-mcp/config.yaml。
 
 只问真正需要人决策的项(凭据/白名单/代理);host/port/AUTH_TOKEN 用默认值
-或保留已有值,不打扰用户。配置完成后直接进入登录向导(登录 default 账号),
-可选择启动服务器。
+或保留已有值,不打扰用户。配置完成后直接进入登录向导(登录 default 账号);
+服务器仅前台运行,由用户自行 `km run` 启动。
 """
 
 from __future__ import annotations
@@ -94,7 +94,7 @@ def run_setup() -> int:
         "strict_usernames": bool(existing.get("strict_usernames", False)),
     }
     cfg_path.write_text(
-        "# kurigram-mcp 配置(由 `kurigram-mcp setup` 生成,修改后重启服务器生效)\n"
+        "# kurigram-mcp 配置(由 `kurigram-mcp setup` 生成,修改后重新 `km run` 生效)\n"
         + yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
     )
     os.chmod(cfg_path, 0o600)
@@ -131,10 +131,5 @@ def run_setup() -> int:
         result["me"]["username"] or "?",
         result["me"]["dc"],
     )
-
-    if _confirm("启动服务器?", default=True):
-        from .serverctl import spawn_server
-
-        spawn_server()
-        print("服务器启动中: http://127.0.0.1:8765/mcp(日志 /tmp/kurigram-server.log)")
+    print("\n运行 `km run` 启动服务器(前台运行,停止: Ctrl-C)")
     return 0

@@ -21,7 +21,7 @@ from .config import DEFAULT_ACCOUNT, Settings
 from .errors import ACCOUNT_NOT_FOUND, McpError
 
 _NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$")
-_HEADER = "# kurigram-mcp 配置(由 `kurigram-mcp setup` / `session` 命令维护,修改后重启服务器生效)\n"
+_HEADER = "# kurigram-mcp 配置(由 `kurigram-mcp setup` / `session` 命令维护,修改后重新 `km run` 生效)\n"
 
 
 # ---- 底层读写 ----

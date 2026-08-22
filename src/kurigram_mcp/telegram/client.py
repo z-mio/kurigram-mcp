@@ -31,7 +31,7 @@ def parse_proxy(url: str | None) -> dict | None:
         return None
     parts = urlsplit(url)
     if parts.scheme not in ("socks5", "socks4", "http"):
-        raise McpError("INTERNAL", f"不支持的代理协议: {parts.scheme}(支持 socks5/socks4/http)")
+        raise McpError(INTERNAL, f"不支持的代理协议: {parts.scheme}(支持 socks5/socks4/http)")
     return {
         "scheme": parts.scheme,
         "hostname": parts.hostname or "",
@@ -313,7 +313,7 @@ class TelegramClient:
         """模拟用户点击 inline 按钮(触发 callback_query)。
 
         定位优先级:data(callback_data 原文)> button_text(文本匹配)> row/col 下标。
-        url 按钮不触发点击,返回目标 URL;非 callback 类型按钮返回类型说明。
+        url 按钮返回目标 URL;callback 按钮触发点击;其他类型按钮返回类型说明。
         """
         from pyrogram.raw.functions.messages import GetBotCallbackAnswer
         from pyrogram.types import InlineKeyboardMarkup
@@ -325,7 +325,7 @@ class TelegramClient:
         if not isinstance(markup, InlineKeyboardMarkup):
             raise McpError(
                 "NO_BUTTONS",
-                f"消息 {message_id} 不是 inline 按钮(类型: {type(markup).__name__})",
+                f"消息 {message_id} 的按钮类型: {type(markup).__name__};可点击类型为 InlineKeyboardMarkup",
             )
 
         # 定位按钮
@@ -366,11 +366,11 @@ class TelegramClient:
                 f"消息 {message_id} 上没有匹配的按钮(data={data!r} text={button_text!r})",
             )
 
-        # url 按钮:不触发点击
+        # url 按钮:直接返回目标 URL
         if getattr(target, "url", None):
             return {"type": "url", "text": target.text, "url": target.url}
 
-        # 非 callback 类型按钮
+        # 无 callback_data 的按钮(web_app/登录/支付等):返回类型说明
         if getattr(target, "callback_data", None) is None:
             kinds = [
                 k
@@ -386,7 +386,7 @@ class TelegramClient:
             ]
             return {"type": "unsupported", "text": target.text, "button_type": kinds or "unknown"}
 
-        # 触发点击
+        # callback 按钮:触发点击
         cb = target.callback_data
         if isinstance(cb, str):
             cb = cb.encode()
@@ -587,7 +587,7 @@ class TelegramClient:
         return {"chat_id": chat_id, "left": True}
 
     async def get_chat_members_count(self, chat_id: int) -> dict:
-        """群/频道成员数(用户/私聊不可用)。"""
+        """群/频道成员数(用户/私聊场景下成员概念不存在)。"""
         count = await self.raw.get_chat_members_count(chat_id)
         return {"chat_id": chat_id, "members_count": count}
 
@@ -709,7 +709,7 @@ class TelegramClient:
     # ---------- 深度调试 ----------
 
     async def raw_invoke(self, function: str, params: dict) -> dict:
-        """调用任意 raw MTProto 函数(不做白名单/安全过滤)。
+        """调用任意 raw MTProto 函数,直接执行你指定的函数(可含删除、修改账号设置等操作)。
 
         大整数检测:JS 客户端(如 DSH)以 JSON number 传输 64 位整数会丢精度
         (超过 2^53 的 access_hash/query_id 等),导致 BOT_INVALID/PEER_ID_INVALID
@@ -762,9 +762,10 @@ class TelegramClient:
             if "argument after ** must be a mapping" in msg:
                 raise McpError(
                     INTERNAL,
-                    f"raw 参数格式错误:嵌套对象必须作为具名参数的值,不能作为整个参数对象,"
+                    f"raw 参数格式错误:嵌套对象作为具名参数的值传入,"
                     f'如 {{"peer": {{"_": "inputPeerEmpty"}}}};'
-                    f'函数 {function} 的参数名与类型见 get_raw_method_info("{function}")',
+                    f'整个参数对象只包含 {function} 的具名参数,'
+                    f'参数名与类型见 get_raw_method_info("{function}")',
                 ) from exc
             m = re.search(r"missing (\d+) required keyword-only arguments: (.+)", msg)
             if m:
@@ -816,8 +817,8 @@ class TelegramClient:
 def _parse_mode(parse_mode: str | None):
     """'none' | 'markdown' | 'html' -> pyrogram ParseMode;None 保持客户端默认。
 
-    注:kurigram 2.2.24 未提供 ParseMode.MARKDOWN2,故不支持 markdown2
-    (剧透/下划线可用 HTML 的 <tg-spoiler> 表达)。
+    注:parse_mode 支持 none/markdown/html 三种;需要剧透/下划线等格式时
+    使用 HTML 的 <tg-spoiler> 表达。
     """
     if parse_mode is None:
         return None

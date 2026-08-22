@@ -75,7 +75,7 @@ class EventBus:
         而 LLM 客户端从发送消息到发出下一次 wait 调用往往间隔数秒~数十秒,
         故默认 60s(此前 5s 太短,快回复会滑出窗口导致误报"没回复")。
         事件 ts 可能非单调(消息用 message.date、删除/反应用接收时刻),
-        因此按年龄过滤全流,而不是"遇旧即断"。
+        因此按年龄过滤全流,遇旧继续向后查找。
         """
         now = time.time()
         for ev in reversed(self._stream):

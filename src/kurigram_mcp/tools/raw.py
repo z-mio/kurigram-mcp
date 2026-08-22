@@ -32,7 +32,8 @@ def register(mcp: MCPServer) -> None:
         JS 客户端传输会丢精度,失败时改用字符串传参。
         account:操作账号(缺省默认账号)。
 
-        注意:raw 调用不做白名单或安全过滤,可执行任意操作(包括删除、修改账号设置),请谨慎使用。
+        注意:raw 调用直接执行你指定的任意 MTProto 函数(可含删除、修改账号设置等操作),
+        调用前请自行确认函数作用域,谨慎使用。
         """
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
@@ -51,7 +52,6 @@ def register(mcp: MCPServer) -> None:
         返回 name + 参数名 + 返回类型,用于发现"有哪些底层能力"。
         示例:query="getChat" 找聊天相关;module="messages" 只看消息模块。
         """
-        state: ServerState = ctx.request_context.lifespan_context  # noqa: F841 - 保持签名一致
         methods = list_functions(query=query, module=module, limit=limit)
         return {"count": len(methods), "methods": methods}
 
@@ -63,5 +63,4 @@ def register(mcp: MCPServer) -> None:
         在调用 raw_invoke 前先查这里,避免参数名/类型错误。
         示例:get_raw_method_info("messages.getDialogs")
         """
-        state: ServerState = ctx.request_context.lifespan_context  # noqa: F841 - 保持签名一致
         return get_function_info(name)

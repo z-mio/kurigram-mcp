@@ -304,11 +304,11 @@ def register(mcp: MCPServer) -> None:
     ) -> dict:
         """模拟用户点击 bot 消息上的 inline 按钮(触发 callback_query)。
 
-        注意:这是"点击消息上的按钮",不是"发起 inline 查询"(向 bot 的 inline mode
-        发查询请用 send_inline_query)。
+        注意:本工具模拟点击消息上的按钮;向 bot 的 inline mode 发起查询
+        请用 send_inline_query。
         定位优先级:data(callback_data 原文,可从 get_messages 的 reply_markup 里拿到)
         > button_text(按钮文本)> row_index/col_index。
-        url 按钮不触发点击,返回目标 URL;点击后 bot 的行为(编辑消息/新消息)
+        url 按钮返回目标 URL;点击后 bot 的行为(编辑消息/新消息)
         可用 wait_for_update 或 get_chat_history 观察。
         """
         state: ServerState = ctx.request_context.lifespan_context

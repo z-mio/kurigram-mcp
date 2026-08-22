@@ -35,11 +35,6 @@ class ServerState:
         """缺省账号白名单(向后兼容)。"""
         return self.accesses[self.default]
 
-    @property
-    def bus(self):
-        """缺省账号事件总线(向后兼容)。"""
-        return self.client.bus
-
     def resolve(self, account: str | None) -> TelegramClient:
         """按账号名取客户端;None 用缺省账号。账号未连接时给出明确错误。"""
         if not account:
@@ -72,7 +67,7 @@ def access_for(state: ServerState, account: str | None = None) -> AccessControl:
 
 
 def require_chat(access, chat_id: int) -> None:
-    """白名单守卫:fail-closed,不泄露存在性。"""
+    """白名单守卫:fail-closed,白名单外的 chat_id 一律拒绝。"""
     if not access.is_allowed(chat_id):
         raise McpError(
             NOT_WHITELISTED,

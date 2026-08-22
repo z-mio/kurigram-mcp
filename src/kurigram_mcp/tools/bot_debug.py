@@ -153,10 +153,10 @@ def register(mcp: MCPServer) -> None:
                 "hint": f"用 get_chat_history 验证历史,或 drain_updates(cursor={client.bus.latest_seq}) 拉取后续事件",
             }
             if client.bus.latest_seq == 0:
-                # 进程启动以来零事件:可能事件流异常,或目标 chat 确实静默(自己发的消息不入总线)
+                # 进程启动以来零事件:可能事件流异常,或目标 chat 确实静默(事件总线只收他人消息)
                 out["event_stream_idle"] = True
                 out["hint"] += (
-                    ";注意:自己发送的消息不会产生事件(Telegram 只在响应内联),"
+                    ";事件总线记录他人/bot 的消息;自己发送的消息由发送工具直接返回,"
                     "请等 bot/他人消息,或用 get_chat_history 查证"
                 )
             return out
@@ -231,7 +231,7 @@ def register(mcp: MCPServer) -> None:
     async def start_bot(
         ctx: Context, bot_username: str, param: str = "", account: str | None = None
     ) -> dict:
-        """向 bot 发送 /start,触发 bot 的 start 流程。param 为 Telegram 深链 start 参数(等价于 "/start 后跟的 payload",如 param="menu" 对应 /start menu),不体现在消息文本中。返回的是你发出的 /start 消息(不是 bot 的回复);bot 的回复请用 wait_for_update(from_bot=true) 或 get_chat_history 查看。需 bot 在白名单。"""
+        """向 bot 发送 /start,触发 bot 的 start 流程。param 为 Telegram 深链 start 参数(等价于 "/start 后跟的 payload",如 param="menu" 对应 /start menu),不体现在消息文本中。返回你发出的 /start 消息;bot 的回复请用 wait_for_update(from_bot=true) 或 get_chat_history 查看。需 bot 在白名单。"""
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
         chat = await client.raw.get_chat(bot_username)

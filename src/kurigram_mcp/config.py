@@ -3,7 +3,6 @@
 配置加载优先级(高 → 低):
 1. 环境变量(stdio 模式/临时覆盖用)
 2. ~/.kurigram-mcp/config.yaml(setup 交互式生成的主配置,YAML)
-3. 当前工作目录的 .env(开发模式兼容)
 
 数据目录:默认 ~/.kurigram-mcp(可用 SESSION_DIR 覆盖),结构:
 - config.yaml / downloads / 其他 → 根下
@@ -84,7 +83,8 @@ class Settings(BaseSettings):
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         """来源顺序:init > 环境变量 > ~/.kurigram-mcp/config.yaml。
 
-        刻意不读取当前目录的 .env:避免在其他项目目录启动时配置串台。
+        配置来源仅这三类;当前工作目录的 .env 属于该项目的配置,与本工具无关,
+        纳入会跨项目串台。
         """
         return (
             init_settings,

@@ -1,9 +1,10 @@
-"""命令行入口:kurigram-mcp [run|session|status|restart|setup|auth]。
+"""命令行入口:kurigram-mcp [run|session|setup]。
 
 设计原则:
-- 不带参数 = 交互向导(默认值全覆盖,回车即过);
-- 带参数 = 脚本模式(行为确定,秘密仍走 getpass/交互);
-- `session add` 是唯一入口:注册 + 登录一条命令,不授权 = 不记录。
+- 裸命令显示帮助;子命令缺参数时进入交互向导(默认值全覆盖,回车即过);
+- 显式传参 = 脚本模式(行为确定,秘密仍走 getpass/交互);
+- `session add` 是唯一入口:注册 + 登录一条命令,授权成功才记录账号;
+- 服务器由 `km run` 前台运行,停止用 Ctrl-C;账号/白名单改动在下次启动时生效。
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from .auth import login
 from .config import DEFAULT_ACCOUNT, Settings
 from .errors import McpError
 from .server import run_server
-from .serverctl import port_open, restart_server, server_process
+from .serverctl import port_open, server_process
 from .setup import run_setup
 
 try:
@@ -67,19 +68,6 @@ def _pick(prompt: str, options: list[tuple[str, str]]) -> int:
         except ValueError:
             pass
         print(f"✗ 无效选择: {choice!r}")
-
-
-def _confirm(prompt: str, default: bool = True) -> bool:
-    suffix = "[Y/n]" if default else "[y/N]"
-    while True:
-        answer = input(f"{prompt} {suffix}: ").strip().lower()
-        if not answer:
-            return default
-        if answer in ("y", "yes"):
-            return True
-        if answer in ("n", "no"):
-            return False
-        print("✗ 请输入 y 或 n")
 
 
 # ---- 表格展示 ----
@@ -144,17 +132,14 @@ def _save_me(acc_settings: Settings, result: dict) -> None:
         logger.debug("写回身份快照失败: {}", exc)
 
 
-def _maybe_restart(settings: Settings) -> None:
-    """账号/白名单改动后:服务器在跑则问是否重启。"""
+def _maybe_notify_run() -> None:
+    """账号/白名单改动后:服务器在跑则提示需要重新 `km run` 生效。"""
     if not sys.stdin.isatty():
         return
     if server_process() is None:
         print("提示: 服务器未运行,`km run` 启动后生效")
         return
-    if _confirm("服务器正在运行,是否重启加载变更?", default=True):
-        restart_server(settings)
-    else:
-        print("提示: 稍后 `km restart` 生效")
+    print("提示: 服务器正在运行;账号/白名单改动将在下次 `km run` 时生效")
 
 
 def _server_online(settings: Settings) -> bool:
@@ -259,7 +244,7 @@ def _cmd_session_add(settings: Settings, args: argparse.Namespace) -> int:
         result["me"]["username"] or "?",
         result["me"]["dc"],
     )
-    _maybe_restart(settings)
+    _maybe_notify_run()
     return 0
 
 
@@ -277,7 +262,7 @@ def _cmd_relogin(settings: Settings, acc: Settings) -> int:
             result["me"]["username"] or "?",
             result["me"]["dc"],
         )
-        _maybe_restart(settings)
+        _maybe_notify_run()
         return 0
     # 重登失败 = 旧会话已失效:清除会话文件与身份快照,恢复未登录状态
     try:
@@ -348,7 +333,7 @@ def _cmd_session_set(settings: Settings, args: argparse.Namespace) -> int:
         result["allowed_chat_ids"] or "(全局)",
         result["proxy"] or "-",
     )
-    _maybe_restart(settings)
+    _maybe_notify_run()
     return 0
 
 
@@ -384,35 +369,6 @@ def _cmd_session_list(settings: Settings, args: argparse.Namespace) -> int:
     return 0
 
 
-# ---- 状态 / 重启 ----
-
-def _cmd_status(settings: Settings) -> int:
-    found = server_process()
-    port = settings.port
-    running = found is not None and port_open(port)
-    if running:
-        print(f"● 服务器: 运行中 http://127.0.0.1:{port}/mcp")
-    else:
-        print("○ 服务器: 未运行")
-    rows = session_store.list_sessions(settings)
-    if rows:
-        _print_account_table(rows, verbose=False)
-    else:
-        print("(未配置任何账号)")
-    if running:
-        print("提示: 账号/白名单改动后需重启生效 → `km restart`")
-    else:
-        print("提示: `km run` 启动服务器")
-    return 0
-
-
-def _cmd_restart(settings: Settings) -> int:
-    if not server_process():
-        logger.error("没有找到运行中的服务器;请直接 `km run`")
-        return 1
-    return 0 if restart_server(settings) else 1
-
-
 # ---- 入口 ----
 
 def build_parser() -> argparse.ArgumentParser:
@@ -446,7 +402,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_p.add_argument("--proxy", help="该账号专用代理(可选)")
     add_p.add_argument("--allowed-chat-ids", help="该账号专用白名单(可选,逗号分隔;留空用全局)")
 
-    set_p = session_sub.add_parser("set", help="修改账号配置(白名单/代理),重启服务器后生效")
+    set_p = session_sub.add_parser("set", help="修改账号配置(白名单/代理),下次 `km run` 时生效")
     set_p.add_argument("name", nargs="?", help="账号名;缺省交互选择")
     set_p.add_argument("--allowed-chat-ids", help="新白名单(逗号分隔;传空字符串 '' 清除→回退全局)")
     set_p.add_argument("--proxy", help="新代理(传空字符串 '' 清除→直连/全局)")
@@ -456,9 +412,6 @@ def build_parser() -> argparse.ArgumentParser:
     rm_p.add_argument("-f", "--force", action="store_true", help="跳过确认(非交互环境必需)")
 
     session_sub.add_parser("list", aliases=["ls"], help="列出所有账号与登录状态")
-
-    sub.add_parser("status", help="一眼总览:服务器状态 + 账号表")
-    sub.add_parser("restart", help="重启运行中的服务器(账号/白名单改动后生效)")
 
     sub.add_parser("setup", help="交互式配置向导:生成 ~/.kurigram-mcp/config")
 
@@ -472,19 +425,13 @@ def main(argv: list[str] | None = None) -> int:
     settings = Settings()
     setup_logging(settings.log_level)
 
-    # 裸命令(无子命令):不启动服务器,打印帮助
+    # 裸命令(无子命令):打印帮助
     if args.command is None:
         parser.print_help()
         return 0
 
     if args.command == "setup":
         return run_setup()
-
-    if args.command == "status":
-        return _cmd_status(settings)
-
-    if args.command == "restart":
-        return _cmd_restart(settings)
 
     if args.command == "session":
         if session_store is None:  # pragma: no cover
@@ -499,7 +446,7 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_session_remove(settings, args)
         return _cmd_session_list(settings, args)
 
-    # 默认:run(裸 kurigram-mcp 也按 run 处理)
+    # run 子命令:前台启动服务器
     overrides = {}
     if getattr(args, "host", None):
         overrides["host"] = args.host

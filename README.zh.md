@@ -22,7 +22,7 @@
 | 🧪 **Bot 调试**   | 发送 `/start`、测量回复延迟、等待事件、消费更新流                                         |
 | 🛠️ **深度调试**   | `raw_invoke` 调用任意 MTProto 函数,内置 API 发现                                          |
 | 🔒 **聊天白名单** | 账号级白名单 + 全局兜底,fail-closed                                                       |
-| ⚡ **无状态**     | 服务器重启不影响已连接的客户端                                                            |
+| ⚡ **无状态**     | 客户端在服务器重启后保持连接                                                            |
 | 🚀 **零配置**     | `uv tool install` + 交互式向导,一条命令登录                                               |
 
 ## 🚀 快速开始
@@ -38,15 +38,11 @@ km setup
 # 3. 登录
 km session add          # 交互向导:账号名 → 凭据 → 白名单 → 手机号 → 验证码 → 2FA
 
-# 4. 启动服务器
+# 4. 启动服务器(前台运行,停止: Ctrl-C)
 km run     # 默认 http://127.0.0.1:8765/mcp
-
-# 5. 总览与生效
-km status               # 服务器状态 + 账号表,一眼看完
-km restart              # 重启运行中的服务器(账号/白名单改动后生效)
 ```
 
-> 在 [my.telegram.org/apps](https://my.telegram.org/apps) 获取 `API_ID` / `API_HASH`。登录必须由你本人完成——凭据永远不会离开你的机器。
+> 在 [my.telegram.org/apps](https://my.telegram.org/apps) 获取 `API_ID` / `API_HASH`。登录必须由你本人完成——凭据只保存在你的机器上。
 
 ## 👥 多账号会话
 

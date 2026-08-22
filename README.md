@@ -22,7 +22,7 @@
 | 🧪 **Bot debugging**  | Send `/start`, measure reply latency, wait for events, drain update streams                                           |
 | 🛠️ **Deep debugging** | `raw_invoke` any MTProto function, with built-in API discovery                                                        |
 | 🔒 **Chat whitelist** | Per-account whitelist with global fallback, fail-closed by default                                                         |
-| ⚡ **Stateless**      | Server restarts don't break connected clients                                                                         |
+| ⚡ **Stateless**      | Clients stay connected across server restarts                                                                        |
 | 🚀 **Zero config**    | `uv tool install`, interactive setup wizard, one-command login                                                        |
 
 ## 🚀 Quick Start
@@ -38,16 +38,12 @@ km setup
 # 3. Log in
 km session add          # interactive wizard: name → credentials → whitelist → phone → code → 2FA
 
-# 4. Start the server
+# 4. Start the server (foreground — stop with Ctrl-C)
 km run     # default: http://127.0.0.1:8765/mcp
-
-# 5. Overview & apply changes
-km status               # server state + account table in one glance
-km restart              # restart the running server (picks up account/whitelist changes)
 ```
 
 > Get `API_ID` / `API_HASH` from [my.telegram.org/apps](https://my.telegram.org/apps). Login must be performed by you —
-> credentials never leave your machine.
+> credentials stay on your machine.
 
 ## 👥 Multi-Account Sessions
 

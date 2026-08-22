@@ -60,7 +60,7 @@ def register(mcp: MCPServer) -> None:
     @mcp.tool()
     @wrap_errors
     async def get_dialogs(ctx: Context, account: str | None = None) -> dict:
-        """列出所有会话,仅返回白名单内的(不泄露其他聊天)。"""
+        """列出所有会话,仅返回白名单内的聊天。"""
         state: ServerState = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
