@@ -85,8 +85,7 @@ km run                   # every tool now accepts account="alice" / account="bob
 - Per-account `--allowed-chat-ids` overrides the global whitelist for that account; accounts
   without their own whitelist fall back to the global `allowed_chat_ids`.
 - Re-running `km session add <name>` on an existing account: server online ⇒ session is fine;
-  otherwise it verifies the session file and re-logs-in if invalid (credentials/whitelist are kept
-  on failure — nothing is deleted).
+  otherwise it verifies the session file and re-logs-in if invalid.
 - `mcp_get_server_info` lists all connected accounts.
 
 ## 🧰 Tools (34)

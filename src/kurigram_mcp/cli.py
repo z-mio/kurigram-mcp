@@ -265,7 +265,7 @@ def _cmd_session_add(settings: Settings, args: argparse.Namespace) -> int:
 
 
 def _cmd_relogin(settings: Settings, acc: Settings) -> int:
-    """已有账号重登;失败保留原配置/快照/会话文件,明确告知未改动。"""
+    """已有账号重登。"""
     name = acc.account_name or DEFAULT_ACCOUNT
     print(f"→ 重新登录 '{name}' ...")
     result = asyncio.run(login(acc))
@@ -280,8 +280,7 @@ def _cmd_relogin(settings: Settings, acc: Settings) -> int:
         )
         _maybe_restart(settings)
         return 0
-    logger.error("账号 '{}' 重新登录失败: {}", name, result["reason"])
-    logger.info("原配置/旧会话保留未改动;可重试 `km session add {}`", name)
+    logger.error("账号 '{}' 重新登录失败: {};可重试 `km session add {}`", name, result["reason"], name)
     return 1
 
 

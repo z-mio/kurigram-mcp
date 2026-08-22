@@ -78,8 +78,7 @@ km run                   # 之后每个工具都可传 account="alice" / account
 - `km run --account alice` 可启动单账号服务器(隔离模式);未登录的账号启动时警告跳过。
 - 旧式单账号配置(顶层 `api_id`)即隐式账号 **`default`** —— 现有配置零迁移。
 - 每账号 `--allowed-chat-ids` 覆盖全局白名单;未设置的账号回退全局 `allowed_chat_ids`。
-- 对已有账号重跑 `km session add <name>`:服务器在线 ⇒ 会话正常;否则验证会话文件,失效则重新登录
-  (失败时配置/白名单/旧会话原样保留,不删任何东西)。
+- 对已有账号重跑 `km session add <name>`:服务器在线 ⇒ 会话正常;否则验证会话文件,失效则重新登录。
 - `mcp_get_server_info` 列出所有已连接账号。
 
 ## 🧰 工具 (34 个)
