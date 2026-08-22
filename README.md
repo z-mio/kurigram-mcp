@@ -47,8 +47,8 @@ km restart              # restart the running server (picks up account/whitelist
 ```
 
 > Get `API_ID` / `API_HASH` from [my.telegram.org/apps](https://my.telegram.org/apps). Login must be performed by you —
-> credentials never leave your machine. `km session add` **fails (and records nothing) if login fails**;
-> re-running it on an existing account re-verifies (server online ⇒ session OK) or re-logs-in.
+> credentials never leave your machine. `km session add` **only records an account after a
+> successful login**; re-running it on an existing account re-verifies (server online ⇒ session OK) or re-logs-in.
 
 ## 👥 Multi-Account Sessions
 

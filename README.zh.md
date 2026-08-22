@@ -47,7 +47,7 @@ km restart              # 重启运行中的服务器(账号/白名单改动后�
 ```
 
 > 在 [my.telegram.org/apps](https://my.telegram.org/apps) 获取 `API_ID` / `API_HASH`。登录必须由你本人完成——凭据永远不会离开你的机器。
-> `km session add` **登录失败 = 添加失败,不记录该账号**;对已有账号重跑会自动验证(服务器在线即会话有效)或重新登录。
+> `km session add` **登录成功才添加账号**;对已有账号重跑会自动验证(服务器在线即会话有效)或重新登录。
 
 ## 👥 多账号会话
 
@@ -56,7 +56,7 @@ km restart              # 重启运行中的服务器(账号/白名单改动后�
 `account` 参数**:
 
 ```bash
-# 1. 逐个添加账号 —— 注册即登录(登录失败不记录)
+# 1. 逐个添加账号 —— 注册即登录,登录成功才记录
 km session add alice    # 交互向导;凭据默认复用 setup 的应用,回车即过
 km session add bob
 
