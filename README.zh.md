@@ -2,7 +2,7 @@
 
 # 🤖 kurigram-mcp
 
-**用 AI 调试 Telegram bot** — 通过 Telegram 用户会话 (MTProto) 驱动 AI 的本地 MCP 服务器。
+**用 AI 调试 Telegram bot** — 通过 Telegram 用户会话 (MTProto) 驱动的本地 MCP 服务器。
 
 [![PyPI Version](https://img.shields.io/pypi/v/kurigram-mcp.svg)](https://pypi.org/project/kurigram-mcp/)
 [![Python Versions](https://img.shields.io/pypi/pyversions/kurigram-mcp.svg)](https://pypi.org/project/kurigram-mcp/)
