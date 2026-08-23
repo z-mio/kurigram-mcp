@@ -21,8 +21,8 @@
 | 🔌 **Standard MCP**   | Streamable HTTP transport, 2026-07-28 protocol, backward-compatible with 2025-11-25 clients (Claude Code, Codex, DSH) |
 | 🧪 **Bot debugging**  | Send `/start`, measure reply latency, wait for events, drain update streams                                           |
 | 🛠️ **Deep debugging** | `raw_invoke` any MTProto function, with built-in API discovery                                                        |
-| 🔒 **Chat whitelist** | Per-account whitelist with global fallback, fail-closed by default                                                         |
-| ⚡ **Stateless**      | Clients stay connected across server restarts                                                                        |
+| 🔒 **Chat whitelist** | Per-account whitelist with global fallback, fail-closed by default                                                    |
+| ⚡ **Stateless**      | Clients stay connected across server restarts                                                                         |
 | 🚀 **Zero config**    | `uv tool install`, interactive setup wizard, one-command login                                                        |
 
 ## 🚀 Quick Start
@@ -47,9 +47,9 @@ km run     # default: http://127.0.0.1:8765/mcp
 
 ## 👥 Multi-Account Sessions
 
-Some test scenarios need several users in the same chat (e.g. group bots). Register one
-account per Telegram user — each account keeps its own session file, optional proxy and
-chat whitelist — then **all accounts live in one server**, and every tool takes an
+Some test scenarios need several users in the same chat (e.g. group bots). Register one account per Telegram user — each
+account keeps its own session file, optional proxy and chat whitelist — then **all accounts live in one server**, and
+every tool takes an
 `account` parameter:
 
 ```bash
@@ -69,12 +69,12 @@ km session set bob --proxy socks5://127.0.0.1:1080   # or --proxy "" to clear
 km run                   # every tool now accepts account="alice" / account="bob"
 ```
 
-- Every tool (send, read, events, raw, `whoami`) accepts `account: <name>` — omit it to use
-  the default account. Example: `send_message(account="alice")` → `wait_for_update(account="alice")`.
+- Every tool (send, read, events, raw, `whoami`) accepts `account: <name>` — omit it to use the default account.
+  Example: `send_message(account="alice")` → `wait_for_update(account="alice")`.
 - `km run --account alice` starts a single-account server (isolation mode).
 - The legacy single-account config (`api_id` at top level) is the implicit account **`default`**.
-- Per-account `--allowed-chat-ids` overrides the global whitelist for that account; accounts
-  without their own whitelist fall back to the global `allowed_chat_ids`.
+- Per-account `--allowed-chat-ids` overrides the global whitelist for that account; accounts without their own whitelist
+  fall back to the global `allowed_chat_ids`.
 - `mcp_get_server_info` lists all connected accounts.
 
 ## 🧰 Tools (34)
@@ -85,7 +85,7 @@ km run                   # every tool now accepts account="alice" / account="bob
 | 📤 Send    | `send_message`, `send_photo`, `send_document`, `send_voice`, `send_sticker`, `send_media_group`, `send_poll`, `vote_poll`, `forward_message`, `edit_message`, `delete_message`, `send_chat_action`, `start_bot`, `click_inline_button`, `send_reaction`, `send_inline_query` |
 | 📥 Read    | `get_chat`, `get_chat_history`, `get_messages`, `get_dialogs`, `search_messages`, `get_chat_members_count`, `download_media`                                                                                                                                                 |
 | 👥 Group   | `join_chat`, `leave_chat`                                                                                                                                                                                                                                                    |
-| ⏱️ Events   | `wait_for_update`(谓词含 `is_media` / `media_type`), `drain_updates`                                                                                                                                                                                                         |
+| ⏱️ Events   | `wait_for_update` (predicates include `is_media` / `media_type`), `drain_updates`                                                                                                                                                                                          |
 | 🔬 Deep    | `raw_invoke`, `list_raw_methods`, `get_raw_method_info`                                                                                                                                                                                                                      |
 
 ## 🔌 Client Setup
