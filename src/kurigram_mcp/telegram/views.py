@@ -6,22 +6,37 @@ import html
 import re
 
 
+def _verification_view(obj) -> dict:
+    """verification_status -> 扁平 dict。
+
+    kurigram 2.2.25+ 将 User/Chat 的 is_verified/is_scam/is_fake 标记为弃用,
+    迁移到 obj.verification_status.*;此处直接读新接口,输出键保持不变。
+    """
+    vs = getattr(obj, "verification_status", None) or None
+    if vs is None:
+        return {"is_verified": None, "is_scam": None, "is_fake": None}
+    return {
+        "is_verified": getattr(vs, "is_verified", None),
+        "is_scam": getattr(vs, "is_scam", None),
+        "is_fake": getattr(vs, "is_fake", None),
+    }
+
+
 def user_view(user) -> dict:
     """pyrogram User -> 扁平 dict(缺字段容错)。"""
     fields = (
         "id",
         "is_bot",
-        "is_verified",
         "is_restricted",
-        "is_scam",
-        "is_fake",
         "first_name",
         "last_name",
         "username",
         "language_code",
         "dc_id",
     )
-    return {f: getattr(user, f, None) for f in fields}
+    view = {f: getattr(user, f, None) for f in fields}
+    view.update(_verification_view(user))
+    return view
 
 
 def chat_view(chat) -> dict:
@@ -34,15 +49,13 @@ def chat_view(chat) -> dict:
         "first_name",
         "last_name",
         "is_bot",
-        "is_verified",
         "is_restricted",
-        "is_scam",
-        "is_fake",
         "description",
         "members_count",
         "photo",
     )
     view = {f: getattr(chat, f, None) for f in fields}
+    view.update(_verification_view(chat))
     # kurigram 怪癖:bot 私聊 Chat 的 is_bot 不填充,只有 type=bot —— 显式补齐
     chat_type = getattr(view.get("type"), "value", view.get("type"))
     if view["is_bot"] is None and str(chat_type).lower() == "bot":
