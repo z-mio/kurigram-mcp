@@ -19,10 +19,10 @@ def register_tools(mcp: MCPServer) -> None:
 
     @mcp.tool()
     @wrap_errors
-    async def whoami(ctx: Context, account: str | None = None) -> dict:
+    async def whoami(ctx: Context[ServerState], account: str | None = None) -> dict:
         """查看 Telegram 用户会话信息(用户 id、用户名、DC、会话文件位置)。
         account:账号名(缺省默认账号);不带参数时若服务器有多个账号,返回当前默认账号。"""
-        state: ServerState = ctx.request_context.lifespan_context
+        state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         info = await client.whoami()
         info["account"] = client.settings.account_name or "default"
@@ -30,9 +30,9 @@ def register_tools(mcp: MCPServer) -> None:
 
     @mcp.tool()
     @wrap_errors
-    async def mcp_get_server_info(ctx: Context) -> dict:
+    async def mcp_get_server_info(ctx: Context[ServerState]) -> dict:
         """查看 MCP 服务器状态:版本、运行时长、已连接账号列表、默认账号、各账号白名单摘要。"""
-        state: ServerState = ctx.request_context.lifespan_context
+        state = ctx.request_context.lifespan_context
         default_client = state.client
         latency = await default_client.ping()
         accounts = []

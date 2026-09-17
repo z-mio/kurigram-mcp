@@ -17,31 +17,32 @@ from .common import (
 )
 
 
-def register(mcp: MCPServer) -> None:
+def register(mcp: MCPServer[ServerState]) -> None:
     @mcp.tool()
     @wrap_errors
     async def send_message(
-        ctx: Context,
+        ctx: Context[ServerState],
         chat_id: int | str,
         text: str,
         reply_to_message_id: int | None = None,
         parse_mode: str = "none",
         account: str | None = None,
     ) -> dict:
-        """发送文本消息。parse_mode: none | markdown | html(如 <b>粗体</b>、<tg-spoiler>剧透</tg-spoiler>、<i>斜体</i>)。仅文本;发送投票请用 send_poll(返回里的 poll 字段仅投票消息才有)。account:操作账号(缺省默认账号,下同)。"""
-        state: ServerState = ctx.request_context.lifespan_context
+        """发送文本消息。
+        parse_mode: none | markdown | html(如 <b>粗体</b>、<tg-spoiler>剧透</tg-spoiler>、<i>斜体</i>)。
+        仅文本;发送投票请用 send_poll(返回里的 poll 字段仅投票消息才有)。
+        account:操作账号(缺省默认账号,下同)。"""
+        state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
-        return await client.send_message(
-            chat_id, text, reply_to_message_id=reply_to_message_id, parse_mode=parse_mode
-        )
+        return await client.send_message(chat_id, text, reply_to_message_id=reply_to_message_id, parse_mode=parse_mode)
 
     @mcp.tool()
     @wrap_errors
     async def send_photo(
-        ctx: Context,
+        ctx: Context[ServerState],
         chat_id: int | str,
         media: str,
         caption: str | None = None,
@@ -49,21 +50,26 @@ def register(mcp: MCPServer) -> None:
         reply_to_message_id: int | None = None,
         account: str | None = None,
     ) -> dict:
-        """发送图片。media:本地路径(服务器侧可访问)| Telegram file_id | http(s) URL;媒体类型按扩展名自动识别(图片→photo)。caption 会出现在返回的 text 字段。parse_mode: none | markdown | html(作用于 caption)。"""
-        state: ServerState = ctx.request_context.lifespan_context
+        """发送图片。media:本地路径(服务器侧可访问)| Telegram file_id | http(s) URL;
+        媒体类型按扩展名自动识别(图片→photo)。
+        caption 会出现在返回的 text 字段。parse_mode: none | markdown | html(作用于 caption)。"""
+        state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         return await client.send_photo(
-            chat_id, media, caption=caption, parse_mode=parse_mode,
+            chat_id,
+            media,
+            caption=caption,
+            parse_mode=parse_mode,
             reply_to_message_id=reply_to_message_id,
         )
 
     @mcp.tool()
     @wrap_errors
     async def send_document(
-        ctx: Context,
+        ctx: Context[ServerState],
         chat_id: int | str,
         media: str,
         caption: str | None = None,
@@ -71,21 +77,26 @@ def register(mcp: MCPServer) -> None:
         reply_to_message_id: int | None = None,
         account: str | None = None,
     ) -> dict:
-        """发送文件。media:本地路径(服务器侧可访问)| Telegram file_id | http(s) URL;媒体类型按扩展名自动识别(如 .ogg→voice、.webp→sticker)。caption 会出现在返回的 text 字段。parse_mode: none | markdown | html(作用于 caption)。"""
-        state: ServerState = ctx.request_context.lifespan_context
+        """发送文件。media:本地路径(服务器侧可访问)| Telegram file_id | http(s) URL;
+        媒体类型按扩展名自动识别(如 .ogg→voice、.webp→sticker)。caption 会出现在返回的 text 字段。
+        parse_mode: none | markdown | html(作用于 caption)。"""
+        state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         return await client.send_document(
-            chat_id, media, caption=caption, parse_mode=parse_mode,
+            chat_id,
+            media,
+            caption=caption,
+            parse_mode=parse_mode,
             reply_to_message_id=reply_to_message_id,
         )
 
     @mcp.tool()
     @wrap_errors
     async def send_voice(
-        ctx: Context,
+        ctx: Context[ServerState],
         chat_id: int | str,
         media: str,
         caption: str | None = None,
@@ -93,28 +104,34 @@ def register(mcp: MCPServer) -> None:
         reply_to_message_id: int | None = None,
         account: str | None = None,
     ) -> dict:
-        """发送语音(voice note)。media:本地路径(服务器侧可访问)| Telegram file_id | http(s) URL;建议用 .ogg/.mp3 音频文件。caption 会出现在返回的 text 字段。parse_mode: none | markdown | html(作用于 caption)。"""
-        state: ServerState = ctx.request_context.lifespan_context
+        """发送语音(voice note)。media:本地路径(服务器侧可访问)| Telegram file_id | http(s) URL;
+        建议用 .ogg/.mp3 音频文件。
+        caption 会出现在返回的 text 字段。parse_mode: none | markdown | html(作用于 caption)。
+        """
+        state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         return await client.send_voice(
-            chat_id, media, caption=caption, parse_mode=parse_mode,
+            chat_id,
+            media,
+            caption=caption,
+            parse_mode=parse_mode,
             reply_to_message_id=reply_to_message_id,
         )
 
     @mcp.tool()
     @wrap_errors
     async def send_sticker(
-        ctx: Context,
+        ctx: Context[ServerState],
         chat_id: int | str,
         media: str,
         reply_to_message_id: int | None = None,
         account: str | None = None,
     ) -> dict:
         """发送贴纸。media:本地 .webp 路径 | Telegram file_id | http(s) URL。"""
-        state: ServerState = ctx.request_context.lifespan_context
+        state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
@@ -124,7 +141,7 @@ def register(mcp: MCPServer) -> None:
     @mcp.tool()
     @wrap_errors
     async def send_media_group(
-        ctx: Context,
+        ctx: Context[ServerState],
         chat_id: int | str,
         media: list,
         reply_to_message_id: int | None = None,
@@ -132,19 +149,17 @@ def register(mcp: MCPServer) -> None:
     ) -> dict:
         """发送相册(媒体组)。media 条目:字符串(路径/file_id/URL)或
         {"media": ..., "type": "photo"|"document", "caption": ...}。"""
-        state: ServerState = ctx.request_context.lifespan_context
+        state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
-        return await client.send_media_group(
-            chat_id, media, reply_to_message_id=reply_to_message_id
-        )
+        return await client.send_media_group(chat_id, media, reply_to_message_id=reply_to_message_id)
 
     @mcp.tool()
     @wrap_errors
     async def send_poll(
-        ctx: Context,
+        ctx: Context[ServerState],
         chat_id: int | str,
         question: str,
         options: list[str],
@@ -159,7 +174,7 @@ def register(mcp: MCPServer) -> None:
     ) -> dict:
         """发送投票/测验(测试 bot 的 poll 处理)。options 为选项文本列表;
         is_quiz 时可用 correct_option_id(0 基)+ explanation。"""
-        state: ServerState = ctx.request_context.lifespan_context
+        state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
@@ -180,14 +195,14 @@ def register(mcp: MCPServer) -> None:
     @mcp.tool()
     @wrap_errors
     async def vote_poll(
-        ctx: Context,
+        ctx: Context[ServerState],
         chat_id: int | str,
         message_id: int,
         options: int | list[int],
         account: str | None = None,
     ) -> dict:
         """给投票/测验投票(触发 bot 的 poll_answer 更新)。options:选项下标或下标列表。"""
-        state: ServerState = ctx.request_context.lifespan_context
+        state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
@@ -197,7 +212,7 @@ def register(mcp: MCPServer) -> None:
     @mcp.tool()
     @wrap_errors
     async def forward_message(
-        ctx: Context,
+        ctx: Context[ServerState],
         chat_id: int | str,
         from_chat_id: int | str,
         message_ids: int | list[int],
@@ -205,7 +220,7 @@ def register(mcp: MCPServer) -> None:
     ) -> dict:
         """转发消息(如把频道文章转发给 bot,测 bot 的转发处理)。
         message_ids:单条或列表;from_chat_id 与 chat_id 都需在白名单。"""
-        state: ServerState = ctx.request_context.lifespan_context
+        state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
@@ -216,13 +231,11 @@ def register(mcp: MCPServer) -> None:
 
     @mcp.tool()
     @wrap_errors
-    async def join_chat(
-        ctx: Context, chat_id: int | str, account: str | None = None
-    ) -> dict:
+    async def join_chat(ctx: Context[ServerState], chat_id: int | str, account: str | None = None) -> dict:
         """加入群/频道(触发 bot 的 new_chat_members 更新)。
         chat_id 支持数字 id、@username、邀请链接(t.me/+xxx / t.me/joinchat/xxx)。
         邀请链接加入的新群不在白名单,加入后需将其加入白名单才能操作。"""
-        state: ServerState = ctx.request_context.lifespan_context
+        state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
         s = str(chat_id).strip()
@@ -236,11 +249,9 @@ def register(mcp: MCPServer) -> None:
 
     @mcp.tool()
     @wrap_errors
-    async def leave_chat(
-        ctx: Context, chat_id: int | str, account: str | None = None
-    ) -> dict:
+    async def leave_chat(ctx: Context[ServerState], chat_id: int | str, account: str | None = None) -> dict:
         """退出群/频道(触发 bot 的 left_chat_member 更新)。"""
-        state: ServerState = ctx.request_context.lifespan_context
+        state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
@@ -250,14 +261,14 @@ def register(mcp: MCPServer) -> None:
     @mcp.tool()
     @wrap_errors
     async def edit_message(
-        ctx: Context,
+        ctx: Context[ServerState],
         chat_id: int | str,
         message_id: int,
         text: str,
         account: str | None = None,
     ) -> dict:
         """编辑自己发送的消息。"""
-        state: ServerState = ctx.request_context.lifespan_context
+        state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
@@ -267,10 +278,10 @@ def register(mcp: MCPServer) -> None:
     @mcp.tool()
     @wrap_errors
     async def delete_message(
-        ctx: Context, chat_id: int | str, message_id: int, account: str | None = None
+        ctx: Context[ServerState], chat_id: int | str, message_id: int, account: str | None = None
     ) -> dict:
         """删除消息(双方可见,revoke)。"""
-        state: ServerState = ctx.request_context.lifespan_context
+        state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
@@ -280,10 +291,10 @@ def register(mcp: MCPServer) -> None:
     @mcp.tool()
     @wrap_errors
     async def send_chat_action(
-        ctx: Context, chat_id: int | str, action: str = "typing", account: str | None = None
+        ctx: Context[ServerState], chat_id: int | str, action: str = "typing", account: str | None = None
     ) -> dict:
         """发送聊天动作(TYPING/UPLOAD_PHOTO 等,MTProto 层对 bot 可见)。"""
-        state: ServerState = ctx.request_context.lifespan_context
+        state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
@@ -293,7 +304,7 @@ def register(mcp: MCPServer) -> None:
     @mcp.tool()
     @wrap_errors
     async def click_inline_button(
-        ctx: Context,
+        ctx: Context[ServerState],
         chat_id: int | str,
         message_id: int,
         button_text: str | None = None,
@@ -311,7 +322,7 @@ def register(mcp: MCPServer) -> None:
         url 按钮返回目标 URL;点击后 bot 的行为(编辑消息/新消息)
         可用 wait_for_update 或 get_chat_history 观察。
         """
-        state: ServerState = ctx.request_context.lifespan_context
+        state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
@@ -328,7 +339,7 @@ def register(mcp: MCPServer) -> None:
     @mcp.tool()
     @wrap_errors
     async def send_reaction(
-        ctx: Context,
+        ctx: Context[ServerState],
         chat_id: int | str,
         message_id: int,
         emoji: str,
@@ -336,7 +347,7 @@ def register(mcp: MCPServer) -> None:
         account: str | None = None,
     ) -> dict:
         """给消息发送 reaction(测试 bot 的 reaction 处理)。emoji 如 👍 ❤️ 🔥。"""
-        state: ServerState = ctx.request_context.lifespan_context
+        state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)

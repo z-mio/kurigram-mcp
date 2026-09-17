@@ -43,6 +43,7 @@ def _settings() -> Settings:
 
 # ---- ServerState 多账号解析 ----
 
+
 def _fake_client(name: str):
     return types.SimpleNamespace(settings=types.SimpleNamespace(account_name=name), name=name)
 
@@ -84,6 +85,7 @@ def test_server_state_default_falls_to_first():
 
 # ---- 注册表基础 ----
 
+
 def test_settings_parses_sessions(home):
     _write_config(
         home,
@@ -110,7 +112,11 @@ def test_settings_parses_sessions(home):
 def test_account_names(home):
     _write_config(
         home,
-        {"api_id": 111, "api_hash": "h111", "sessions": {"alice": {"name": "alice", "api_id": 222, "api_hash": "h222"}}},
+        {
+            "api_id": 111,
+            "api_hash": "h111",
+            "sessions": {"alice": {"name": "alice", "api_id": 222, "api_hash": "h222"}},
+        },
     )
     s = _settings()
     assert s.account_names() == [DEFAULT_ACCOUNT, "alice"]
@@ -120,6 +126,7 @@ def test_account_names(home):
 
 
 # ---- resolve_account ----
+
 
 def test_resolve_legacy_default(home):
     _write_config(home, {"api_id": 111, "api_hash": "h111"})
@@ -136,7 +143,12 @@ def test_resolve_named_account(home):
             "api_id": 111,
             "api_hash": "h111",
             "sessions": {
-                "alice": {"name": "alice", "api_id": 222, "api_hash": "h222", "proxy": "socks5://x:1"},
+                "alice": {
+                    "name": "alice",
+                    "api_id": 222,
+                    "api_hash": "h222",
+                    "proxy": "socks5://x:1",
+                },
                 "bob": {"name": "bob", "api_id": 333, "api_hash": "h333"},
             },
         },
@@ -183,6 +195,7 @@ def test_resolve_default_without_top_level(home):
 
 
 # ---- session add ----
+
 
 def test_add_session_creates_config(home):
     s = _settings()  # 无 config
@@ -249,8 +262,21 @@ def test_add_session_requires_hash(home):
 
 # ---- session set ----
 
+
 def test_set_session_whitelist(home):
-    _write_config(home, {"sessions": {"alice": {"name": "alice", "api_id": 222, "api_hash": "h222", "proxy": "socks5://x:1"}}})
+    _write_config(
+        home,
+        {
+            "sessions": {
+                "alice": {
+                    "name": "alice",
+                    "api_id": 222,
+                    "api_hash": "h222",
+                    "proxy": "socks5://x:1",
+                }
+            }
+        },
+    )
     result = set_session(_settings(), "alice", allowed_chat_ids="-1001, me")
     assert result["allowed_chat_ids"] == "-1001, me"
     assert result["proxy"] == "socks5://x:1"  # 未修改的字段保留
@@ -261,7 +287,20 @@ def test_set_session_whitelist(home):
 
 def test_set_session_clear_whitelist_falls_back(home):
     """白名单清空 = 移除账号级条目,回退全局。"""
-    _write_config(home, {"allowed_chat_ids": "999", "sessions": {"alice": {"name": "alice", "api_id": 222, "api_hash": "h222", "allowed_chat_ids": "-1001"}}})
+    _write_config(
+        home,
+        {
+            "allowed_chat_ids": "999",
+            "sessions": {
+                "alice": {
+                    "name": "alice",
+                    "api_id": 222,
+                    "api_hash": "h222",
+                    "allowed_chat_ids": "-1001",
+                }
+            },
+        },
+    )
     result = set_session(_settings(), "alice", allowed_chat_ids="")
     assert result["allowed_chat_ids"] == ""
     data = yaml.safe_load((home / "config.yaml").read_text())
@@ -270,7 +309,19 @@ def test_set_session_clear_whitelist_falls_back(home):
 
 
 def test_set_session_proxy(home):
-    _write_config(home, {"sessions": {"alice": {"name": "alice", "api_id": 222, "api_hash": "h222", "proxy": "socks5://old:1"}}})
+    _write_config(
+        home,
+        {
+            "sessions": {
+                "alice": {
+                    "name": "alice",
+                    "api_id": 222,
+                    "api_hash": "h222",
+                    "proxy": "socks5://old:1",
+                }
+            }
+        },
+    )
     # 换代理
     set_session(_settings(), "alice", proxy="socks5://new:2")
     data = yaml.safe_load((home / "config.yaml").read_text())
@@ -298,7 +349,19 @@ def test_set_session_missing_account(home):
 
 
 def test_set_session_none_keeps_values(home):
-    _write_config(home, {"sessions": {"alice": {"name": "alice", "api_id": 222, "api_hash": "h222", "allowed_chat_ids": "1"}}})
+    _write_config(
+        home,
+        {
+            "sessions": {
+                "alice": {
+                    "name": "alice",
+                    "api_id": 222,
+                    "api_hash": "h222",
+                    "allowed_chat_ids": "1",
+                }
+            }
+        },
+    )
     result = set_session(_settings(), "alice")  # 两个选项都 None
     assert result["allowed_chat_ids"] == "1"
     data = yaml.safe_load((home / "config.yaml").read_text())
@@ -306,6 +369,7 @@ def test_set_session_none_keeps_values(home):
 
 
 # ---- 登录失败清理 ----
+
 
 def test_validate_new_session_rejects_duplicate(home):
     _write_config(home, {"api_id": 111, "api_hash": "h111"})
@@ -338,11 +402,19 @@ def test_discard_failed_session_removes_files(home):
 
 # ---- session remove ----
 
+
 def test_remove_named_session_deletes_file(home):
     session_file = home / "sessions" / "u_222.session"
     session_file.parent.mkdir(parents=True)
     session_file.write_text("fake")
-    _write_config(home, {"api_id": 111, "api_hash": "h111", "sessions": {"alice": {"name": "alice", "api_id": 222, "api_hash": "h222"}}})
+    _write_config(
+        home,
+        {
+            "api_id": 111,
+            "api_hash": "h111",
+            "sessions": {"alice": {"name": "alice", "api_id": 222, "api_hash": "h222"}},
+        },
+    )
     result = remove_session(_settings(), "alice", force=True)
     assert result["deleted_file"] is True
     assert not session_file.exists()
@@ -381,8 +453,21 @@ def test_remove_requires_confirm_outside_tty(home, monkeypatch):
 
 # ---- me 快照回写 ----
 
+
 def test_update_me_named_account(home):
-    _write_config(home, {"sessions": {"alice": {"name": "alice", "api_id": 222, "api_hash": "h222", "proxy": "socks5://x:1"}}})
+    _write_config(
+        home,
+        {
+            "sessions": {
+                "alice": {
+                    "name": "alice",
+                    "api_id": 222,
+                    "api_hash": "h222",
+                    "proxy": "socks5://x:1",
+                }
+            }
+        },
+    )
     s = _settings()
     snapshot = make_me_snapshot("Alice", "alice_user", 5)
     update_me(s.resolve_account("alice"), snapshot)
@@ -403,10 +488,20 @@ def test_update_me_default(home):
 
 # ---- 登录失效清除 ----
 
+
 def test_clear_me_named_account(home):
     _write_config(
         home,
-        {"sessions": {"alice": {"name": "alice", "api_id": 222, "api_hash": "h222", "me": {"first_name": "A"}}}},
+        {
+            "sessions": {
+                "alice": {
+                    "name": "alice",
+                    "api_id": 222,
+                    "api_hash": "h222",
+                    "me": {"first_name": "A"},
+                }
+            }
+        },
     )
     s = _settings()
     clear_me(s.resolve_account("alice"))
@@ -426,13 +521,19 @@ def test_clear_me_default(home):
 
 # ---- list_sessions ----
 
+
 def test_list_sessions_rows(home):
     _write_config(
         home,
         {
             "api_id": 111,
             "api_hash": "h111",
-            "me": {"first_name": "Me", "username": "me_user", "dc": 5, "last_login": "2026-01-01T00:00:00Z"},
+            "me": {
+                "first_name": "Me",
+                "username": "me_user",
+                "dc": 5,
+                "last_login": "2026-01-01T00:00:00Z",
+            },
             "sessions": {"alice": {"name": "alice", "api_id": 222, "api_hash": "h222"}},
         },
     )
@@ -454,6 +555,7 @@ def test_list_sessions_empty(home):
 
 
 # ---- 会话文件目录布局 ----
+
 
 def test_session_file_under_sessions_dir(home):
     _write_config(home, {"api_id": 111, "api_hash": "h111"})

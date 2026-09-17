@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import re
 import time
+from collections.abc import Callable
 
 from loguru import logger
 from mcp.server.mcpserver import Context, MCPServer
@@ -33,7 +34,7 @@ def build_predicate(
     is_media: bool | None = None,
     media_type: str | None = None,
     after_seq: int | None = None,
-):
+) -> Callable[[BusEvent], bool]:
     """构造事件匹配谓词(导出以便单测)。
 
     is_media: True=必须有媒体, False=必须无媒体;
@@ -72,19 +73,16 @@ def build_predicate(
                 return False
         if media_type is not None and ev.payload.get("media") != media_type:
             return False
-        return (
-            reply_to_message_id is None
-            or ev.payload.get("reply_to_message_id") == reply_to_message_id
-        )
+        return reply_to_message_id is None or ev.payload.get("reply_to_message_id") == reply_to_message_id
 
     return pred
 
 
-def register(mcp: MCPServer) -> None:
+def register(mcp: MCPServer[ServerState]) -> None:
     @mcp.tool()
     @wrap_errors
     async def wait_for_update(
-        ctx: Context,
+        ctx: Context[ServerState],
         chat_id: int | str,
         timeout: float = 60,
         from_bot: bool | None = None,
@@ -123,7 +121,7 @@ def register(mcp: MCPServer) -> None:
         不代表 bot 没回复——先用 get_chat_history 查证(回复一定在历史里),或按返回的
         hint 用 drain_updates(cursor) 增量拉取,再下结论。
         """
-        state: ServerState = ctx.request_context.lifespan_context
+        state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
@@ -146,17 +144,18 @@ def register(mcp: MCPServer) -> None:
         )
         waited = round(time.time() - start, 2)
         if ev is None:
-            out = {
+            hint = f"用 get_chat_history 验证历史,或 drain_updates(cursor={client.bus.latest_seq}) 拉取后续事件"
+            out: dict = {
                 "matched": False,
                 "timeout": True,
                 "waited_seconds": waited,
-                "hint": f"用 get_chat_history 验证历史,或 drain_updates(cursor={client.bus.latest_seq}) 拉取后续事件",
+                "hint": hint,
             }
             if client.bus.latest_seq == 0:
                 # 进程启动以来零事件:可能事件流异常,或目标 chat 确实静默(事件总线只收他人消息)
                 out["event_stream_idle"] = True
-                out["hint"] += (
-                    ";事件总线记录他人/bot 的消息;自己发送的消息由发送工具直接返回,"
+                out["hint"] = (
+                    hint + ";事件总线记录他人/bot 的消息;自己发送的消息由发送工具直接返回,"
                     "请等 bot/他人消息,或用 get_chat_history 查证"
                 )
             return out
@@ -165,7 +164,7 @@ def register(mcp: MCPServer) -> None:
     @mcp.tool()
     @wrap_errors
     async def expect_silent(
-        ctx: Context,
+        ctx: Context[ServerState],
         chat_id: int | str,
         duration: float = 5,
         from_bot: bool | None = None,
@@ -183,7 +182,7 @@ def register(mcp: MCPServer) -> None:
         谓词与 wait_for_update 相同(from_bot/types/text_contains/text_matches)。
         返回 {silent, duration_seconds, count, events}。
         """
-        state: ServerState = ctx.request_context.lifespan_context
+        state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
@@ -191,9 +190,7 @@ def register(mcp: MCPServer) -> None:
         start_seq = client.bus.latest_seq
         start = time.time()
         await asyncio.sleep(duration)
-        pred = build_predicate(
-            chat_id, from_bot, text_contains, text_matches, types
-        )
+        pred = build_predicate(chat_id, from_bot, text_contains, text_matches, types)
         _, events = client.bus.drain(start_seq, chat_id=chat_id)
         matched = [e for e in events if pred(e)]
         return {
@@ -206,14 +203,16 @@ def register(mcp: MCPServer) -> None:
     @mcp.tool()
     @wrap_errors
     async def drain_updates(
-        ctx: Context,
+        ctx: Context[ServerState],
         cursor: int | None = None,
         chat_id: int | str | None = None,
         limit: int = 100,
         account: str | None = None,
     ) -> dict:
-        """从光标处拉取事件流。cursor 单调递增:把返回的 cursor 传给下次调用即可增量拉取。chat_id 支持数字/@username/me(可从 get_dialogs 获取)。"""
-        state: ServerState = ctx.request_context.lifespan_context
+        """从光标处拉取事件流。
+        cursor 单调递增:把返回的 cursor 传给下次调用即可增量拉取。
+        chat_id 支持数字/@username/me(可从 get_dialogs 获取)。"""
+        state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         if chat_id is not None:
             access = access_for(state, account)
@@ -229,20 +228,23 @@ def register(mcp: MCPServer) -> None:
     @mcp.tool()
     @wrap_errors
     async def start_bot(
-        ctx: Context, bot_username: str, param: str = "", account: str | None = None
+        ctx: Context[ServerState], bot_username: str, param: str = "", account: str | None = None
     ) -> dict:
-        """向 bot 发送 /start,触发 bot 的 start 流程。param 为 Telegram 深链 start 参数(等价于 "/start 后跟的 payload",如 param="menu" 对应 /start menu),不体现在消息文本中。返回你发出的 /start 消息;bot 的回复请用 wait_for_update(from_bot=true) 或 get_chat_history 查看。需 bot 在白名单。"""
-        state: ServerState = ctx.request_context.lifespan_context
+        """向 bot 发送 /start,触发 bot 的 start 流程。
+        param 为 Telegram 深链 start 参数(等价于 "/start 后跟的 payload",如 param="menu" 对应 /start menu),
+        不体现在消息文本中。返回你发出的 /start 消息;
+        bot 的回复请用 wait_for_update(from_bot=true) 或 get_chat_history 查看。需 bot 在白名单。"""
+        state = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        chat = await client.raw.get_chat(bot_username)
+        chat_id = await client.resolve_chat_id(bot_username)
         access = access_for(state, account)
-        require_chat(access, chat.id)
+        require_chat(access, chat_id)
         return await client.start_bot(bot_username, param=param)
 
     @mcp.tool()
     @wrap_errors
     async def send_inline_query(
-        ctx: Context,
+        ctx: Context[ServerState],
         bot_username: str,
         query: str = "",
         offset: str = "",
@@ -252,17 +254,17 @@ def register(mcp: MCPServer) -> None:
 
         Telegram 要求 bot 开启 inline mode;bot 10 秒不应答返回 timeout=true。
         bot 需在白名单。"""
-        state: ServerState = ctx.request_context.lifespan_context
+        state = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        chat = await client.raw.get_chat(bot_username)
+        chat_id = await client.resolve_chat_id(bot_username)
         access = access_for(state, account)
-        require_chat(access, chat.id)
+        require_chat(access, chat_id)
         return await client.send_inline_query(bot_username, query=query, offset=offset)
 
     @mcp.tool()
     @wrap_errors
     async def probe_bot(
-        ctx: Context,
+        ctx: Context[ServerState],
         bot_username: str,
         wait_per_command: float = 2.0,
         account: str | None = None,
@@ -274,11 +276,11 @@ def register(mcp: MCPServer) -> None:
         wait_per_command 秒,记录回复文本/媒体/按钮)。
         只读 + 3 条命令交互;bot 需在白名单。
         """
-        state: ServerState = ctx.request_context.lifespan_context
+        state = ctx.request_context.lifespan_context
         client = state.resolve(account)
-        chat = await client.raw.get_chat(bot_username)
+        chat_id = await client.resolve_chat_id(bot_username)
         access = access_for(state, account)
-        require_chat(access, chat.id)
+        require_chat(access, chat_id)
         meta = await client.bot_meta(bot_username)
         start_seq = client.bus.latest_seq
 
@@ -291,27 +293,19 @@ def register(mcp: MCPServer) -> None:
         await asyncio.sleep(wait_per_command)
         for cmd in ("/help", "/menu"):
             try:
-                await client.send_message(chat.id, cmd)
+                await client.send_message(chat_id, cmd)
                 cmds.append(cmd)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("probe_bot {} 失败: {}", cmd, exc)
             await asyncio.sleep(wait_per_command)
 
         # 收集 bot 回复:事件总线优先,历史兜底
-        _, events = client.bus.drain(start_seq, chat_id=chat.id)
-        replies = [
-            e.payload
-            for e in events
-            if e.type == "message" and (e.payload.get("from") or {}).get("is_bot")
-        ]
+        _, events = client.bus.drain(start_seq, chat_id=chat_id)
+        replies = [e.payload for e in events if e.type == "message" and (e.payload.get("from") or {}).get("is_bot")]
         attribution = "event_bus"
         if not replies and cmds:
-            hist = await client.get_chat_history(chat.id, limit=20)
-            replies = [
-                m
-                for m in hist["messages"]
-                if m.get("from", {}).get("is_bot") and m.get("text") is not None
-            ]
+            hist = await client.get_chat_history(chat_id, limit=20)
+            replies = [m for m in hist["messages"] if m.get("from", {}).get("is_bot") and m.get("text") is not None]
             replies = list(reversed(replies))[: len(cmds)]
             attribution = "history_fallback(顺序可能不精确)"
 
@@ -329,8 +323,8 @@ def register(mcp: MCPServer) -> None:
                 out[cmd] = None  # 静默无回复
         return {
             "bot_username": bot_username,
-            "chat_id": chat.id,
-            "profile": await client.get_chat(chat.id),
+            "chat_id": chat_id,
+            "profile": await client.get_chat(chat_id),
             **meta,
             "commands_sent": cmds,
             "replies": out,

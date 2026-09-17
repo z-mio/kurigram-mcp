@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import hmac
 import time
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from loguru import logger
 from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
+from pyrogram.types import User
 
 from . import __version__
 from .access import AccessControl
@@ -31,19 +34,25 @@ class StaticTokenVerifier:
         return None
 
 
-def _auth_settings() -> AuthSettings | None:
+# 占位 URL:鉴权真正依赖 token_verifier,issuer/resource 仅为满足 AuthSettings 的类型要求。
+# 必须传字符串而非预构造的 AnyHttpUrl:AuthSettings 开了 url_preserve_empty_path,
+# 由 pydantic 校验才能保持 "http://127.0.0.1" 原样(AnyHttpUrl(...) 会补成带尾斜杠的形式)。
+_PLACEHOLDER_URL = "http://127.0.0.1"
+
+
+def _auth_settings() -> AuthSettings:
     """本地静态 Bearer 鉴权:issuer/resource 填占位 URL,token_verifier 才是真正校验。"""
     return AuthSettings(
-        issuer_url="http://127.0.0.1",
-        resource_server_url="http://127.0.0.1",
+        issuer_url=_PLACEHOLDER_URL,  # type: ignore[arg-type]  # pydantic 运行时校验为 AnyHttpUrl
+        resource_server_url=_PLACEHOLDER_URL,  # type: ignore[arg-type]
     )
 
 
-def build_server(settings: Settings, accounts: list[str] | None = None) -> MCPServer:
+def build_server(settings: Settings, accounts: list[str] | None = None) -> MCPServer[ServerState]:
     """accounts 为 None 时启动全部已注册账号;否则只启动指定账号列表。"""
 
     @asynccontextmanager
-    async def lifespan(server: MCPServer):
+    async def lifespan(server: MCPServer[ServerState]) -> AsyncIterator[ServerState]:
         names = settings.account_names() if accounts is None else accounts
         clients: dict[str, TelegramClient] = {}
         accesses: dict[str, AccessControl] = {}
@@ -91,7 +100,7 @@ def build_server(settings: Settings, accounts: list[str] | None = None) -> MCPSe
         kwargs["auth"] = _auth_settings()
         kwargs["token_verifier"] = StaticTokenVerifier(settings.auth_token)
 
-    mcp = MCPServer(
+    mcp: MCPServer[ServerState] = MCPServer(
         name="kurigram-mcp",
         title="Kurigram MCP",
         description="MCP server for debugging Telegram bots via a user session (kurigram/pyrogram MTProto)",
@@ -102,7 +111,7 @@ def build_server(settings: Settings, accounts: list[str] | None = None) -> MCPSe
     return mcp
 
 
-def _refresh_me_snapshot(acc_settings: Settings, me, dc: int | None) -> None:
+def _refresh_me_snapshot(acc_settings: Settings, me: User, dc: int | None) -> None:
     """启动成功后刷新注册表中的身份快照(让 `session list` 离线展示保持新鲜)。"""
     try:
         from .sessions import make_me_snapshot, update_me
@@ -119,7 +128,7 @@ def _refresh_me_snapshot(acc_settings: Settings, me, dc: int | None) -> None:
         logger.debug("刷新身份快照失败: {}", exc)
 
 
-def run_server(settings: Settings, accounts: list[str] | None = None, **overrides) -> None:
+def run_server(settings: Settings, accounts: list[str] | None = None, **overrides: Any) -> None:
     mcp = build_server(settings, accounts)
     mcp.run(
         transport="streamable-http",

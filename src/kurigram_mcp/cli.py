@@ -16,17 +16,13 @@ import sys
 from loguru import logger
 
 from . import __version__
+from . import sessions as session_store
 from .auth import login
 from .config import DEFAULT_ACCOUNT, Settings
 from .errors import McpError
 from .server import run_server
 from .serverctl import port_open, server_process
 from .setup import run_setup
-
-try:
-    from . import sessions as session_store
-except ImportError:  # pragma: no cover
-    session_store = None
 
 
 def setup_logging(level: str = "INFO") -> None:
@@ -35,6 +31,7 @@ def setup_logging(level: str = "INFO") -> None:
 
 
 # ---- 交互组件 ----
+
 
 def _ask(prompt: str, default: str | None = None, secret: bool = False) -> str:
     """交互输入;空输入返回默认值(secret 走 getpass)。EOF/Ctrl-C 直接退出。"""
@@ -53,8 +50,8 @@ def _ask(prompt: str, default: str | None = None, secret: bool = False) -> str:
             print()
 
 
-def _pick(prompt: str, options: list[tuple[str, str]]) -> int:
-    """编号选择器;返回选中下标。options: (显示文本, 描述)。"""
+def _pick(prompt: str, options: list[tuple[str, str | None]]) -> int:
+    """编号选择器;返回选中下标。options: (显示文本, 描述(可为空))。"""
     print(prompt)
     for i, (label, desc) in enumerate(options, 1):
         desc = f" — {desc}" if desc else ""
@@ -71,6 +68,7 @@ def _pick(prompt: str, options: list[tuple[str, str]]) -> int:
 
 
 # ---- 表格展示 ----
+
 
 def _disp_width(s: str) -> int:
     """终端显示宽度:CJK 等宽字符按 2 列计。"""
@@ -115,6 +113,7 @@ def _print_account_table(rows: list[dict], verbose: bool = False) -> None:
 
 # ---- 会话管理 ----
 
+
 def _save_me(acc_settings: Settings, result: dict) -> None:
     """登录成功后写回身份快照(失败只告警,不影响结果)。"""
     try:
@@ -155,35 +154,36 @@ def _cmd_session_add(settings: Settings, args: argparse.Namespace) -> int:
         logger.error("账号名不能为空")
         return 1
 
-    # default 账号 = 顶层配置;命名账号 = 注册表
+    # default 账号 = 顶层配置;命名账号 = 注册表;未注册 = None(走新建流程)
+    acc: Settings | None
     if name == DEFAULT_ACCOUNT:
         if not settings.api_id:
             logger.error("账号 'default' 未配置(顶层 API_ID 为空);请先运行 `km setup`")
             return 1
         acc = settings.resolve_account(name)
-        existing = True
+    elif name in settings.sessions:
+        acc = settings.resolve_account(name)
     else:
-        existing = name in settings.sessions
-        acc = settings.resolve_account(name) if existing else None
+        acc = None
 
-    # 已有账号:先免交互验证(服务器在线 = 会话已连接,直接判定有效)
-    if existing and acc.session_file.exists():
-        if _server_online(settings):
-            logger.success("账号 '{}' 会话正常(服务器在线,会话已连接)", name)
-            return 0
-        print("→ 检测到已有会话文件,验证连接...")
-        result = asyncio.run(login(acc))
-        if result["ok"]:
-            _save_me(acc, result)
-            logger.success(
-                "账号 '{}' 会话正常: {} (@{})",
-                name,
-                result["me"]["first_name"],
-                result["me"]["username"] or "?",
-            )
-            return 0
-        print(f"→ 会话已失效({result['reason']}),需要重新登录")
-    if existing:
+    if acc is not None:
+        # 已有账号:先免交互验证(服务器在线 = 会话已连接,直接判定有效)
+        if acc.session_file.exists():
+            if _server_online(settings):
+                logger.success("账号 '{}' 会话正常(服务器在线,会话已连接)", name)
+                return 0
+            print("→ 检测到已有会话文件,验证连接...")
+            result = asyncio.run(login(acc))
+            if result["ok"]:
+                _save_me(acc, result)
+                logger.success(
+                    "账号 '{}' 会话正常: {} (@{})",
+                    name,
+                    result["me"]["first_name"],
+                    result["me"]["username"] or "?",
+                )
+                return 0
+            print(f"→ 会话已失效({result['reason']}),需要重新登录")
         return _cmd_relogin(settings, acc)
 
     # 新账号:凭据(默认复用顶层)→ 白名单 → 登录 → 成功才记录
@@ -230,12 +230,15 @@ def _cmd_session_add(settings: Settings, args: argparse.Namespace) -> int:
     result = asyncio.run(login(tmp))
     if not result["ok"]:
         session_store.discard_failed_session(tmp, api_id)
-        logger.error("账号 '{}' 未添加: 登录失败, {};凭据与中间文件已清除,可重试 `km session add {}`", name, result["reason"], name)
+        logger.error(
+            "账号 '{}' 未添加: 登录失败, {};凭据与中间文件已清除,可重试 `km session add {}`",
+            name,
+            result["reason"],
+            name,
+        )
         return 1
 
-    session_store.register_session(
-        settings, name, api_id, api_hash, proxy=proxy, allowed_chat_ids=allowed
-    )
+    session_store.register_session(settings, name, api_id, api_hash, proxy=proxy, allowed_chat_ids=allowed)
     _save_me(tmp, result)
     logger.success(
         "账号 '{}' 已添加并登录: {} (@{}) dc={}",
@@ -276,7 +279,12 @@ def _cmd_relogin(settings: Settings, acc: Settings) -> int:
         clear_me(acc)
     except Exception as exc:  # noqa: BLE001
         logger.debug("清除身份快照失败: {}", exc)
-    logger.error("账号 '{}' 重新登录失败: {};已清除失效会话,可重试 `km session add {}`", name, result["reason"], name)
+    logger.error(
+        "账号 '{}' 重新登录失败: {};已清除失效会话,可重试 `km session add {}`",
+        name,
+        result["reason"],
+        name,
+    )
     return 1
 
 
@@ -321,9 +329,7 @@ def _cmd_session_set(settings: Settings, args: argparse.Namespace) -> int:
             return 1
 
     try:
-        result = session_store.set_session(
-            settings, target, allowed_chat_ids=allowed, proxy=proxy
-        )
+        result = session_store.set_session(settings, target, allowed_chat_ids=allowed, proxy=proxy)
     except McpError as exc:
         logger.error(exc.message)
         return 1
@@ -371,6 +377,7 @@ def _cmd_session_list(settings: Settings, args: argparse.Namespace) -> int:
 
 # ---- 入口 ----
 
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="kurigram-mcp",
@@ -384,12 +391,8 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--host", help="监听地址(默认取 HOST,127.0.0.1)")
     run_p.add_argument("--port", type=int, help="监听端口(默认取 PORT,8765)")
     run_p.add_argument("--path", default="/mcp", help="Streamable HTTP 端点路径(默认 /mcp)")
-    run_p.add_argument(
-        "--stateful", action="store_true", help="使用有状态会话模式(默认无状态,推荐)"
-    )
-    run_p.add_argument(
-        "--json-response", action="store_true", help="纯 JSON 响应,不用 SSE(部分客户端不支持)"
-    )
+    run_p.add_argument("--stateful", action="store_true", help="使用有状态会话模式(默认无状态,推荐)")
+    run_p.add_argument("--json-response", action="store_true", help="纯 JSON 响应,不用 SSE(部分客户端不支持)")
 
     session_p = sub.add_parser("session", help="账号管理:add(注册+登录)/ list / set / remove")
     session_p.add_argument("-v", "--verbose", action="store_true", help="list 时显示 proxy/白名单/登录时间等详情")
@@ -434,9 +437,6 @@ def main(argv: list[str] | None = None) -> int:
         return run_setup()
 
     if args.command == "session":
-        if session_store is None:  # pragma: no cover
-            logger.error("sessions 模块不可用")
-            return 1
         cmd = args.session_command or "list"
         if cmd == "add":
             return _cmd_session_add(settings, args)
@@ -463,15 +463,16 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if getattr(args, "account", None):
             account = settings.resolve_account(args.account)
+            account_name = account.account_name or DEFAULT_ACCOUNT
             if not account.session_file.exists():
                 logger.error(
                     "账号 '{}' 未登录:未找到会话文件 {};请先运行 `km session add {}`",
-                    account.account_name,
+                    account_name,
                     account.session_file,
-                    account.account_name,
+                    account_name,
                 )
                 return 1
-            accounts = [account.account_name]
+            accounts = [account_name]
     except McpError as exc:
         logger.error(exc.message)
         return 1

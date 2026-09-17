@@ -66,7 +66,7 @@ def access_for(state: ServerState, account: str | None = None) -> AccessControl:
     return state.resolve_access(account)
 
 
-def require_chat(access, chat_id: int) -> None:
+def require_chat(access: AccessControl, chat_id: int) -> None:
     """白名单守卫:fail-closed,白名单外的 chat_id 一律拒绝。"""
     if not access.is_allowed(chat_id):
         raise McpError(
@@ -77,7 +77,7 @@ def require_chat(access, chat_id: int) -> None:
         )
 
 
-async def resolve_chat_id(client, chat_id: int | str) -> int:
+async def resolve_chat_id(client: TelegramClient, chat_id: int | str) -> int:
     """工具参数 chat_id 统一解析为数字 id。
 
     支持:数字 id(含群/频道负 ID)、@username(带缓存)、me/self(Saved Messages)。

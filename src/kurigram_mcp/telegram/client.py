@@ -10,13 +10,16 @@ import random
 import re
 import time
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
 
 from loguru import logger
 from pyrogram import Client
+from pyrogram.connection import HTTPProxy, SOCKS4Proxy, SOCKS5Proxy
 from pyrogram.enums import ChatAction, ParseMode
 from pyrogram.errors import RPCError
 from pyrogram.raw import functions
+from pyrogram.types import Message, MessageReactionUpdated, ReplyParameters, User
 
 from ..config import Settings
 from ..errors import INTERNAL, RPC, SESSION_INVALID, McpError, to_mcp_error
@@ -24,24 +27,47 @@ from .raw import build_value, resolve_function, to_plain
 from .updates import EventBus
 from .views import chat_view, inline_result_view, message_view, poll_view, user_view
 
+Proxy = SOCKS4Proxy | SOCKS5Proxy | HTTPProxy
 
-def parse_proxy(url: str | None) -> dict | None:
-    """把 socks5://user:pass@host:port 形式的配置转成 pyrogram proxy dict。"""
+
+def parse_proxy(url: str | None) -> Proxy | None:
+    """把 socks5://user:pass@host:port 形式的配置转成 pyrogram 代理对象。
+
+    kurigram 2.2.26 起 proxy 的取值类型是冻结 dataclass
+    (SOCKS4Proxy/SOCKS5Proxy/HTTPProxy),原先的裸 dict 写法已不再是客户端接受的形态。
+    """
     if not url:
         return None
     parts = urlsplit(url)
     if parts.scheme not in ("socks5", "socks4", "http"):
         raise McpError(INTERNAL, f"不支持的代理协议: {parts.scheme}(支持 socks5/socks4/http)")
-    return {
-        "scheme": parts.scheme,
-        "hostname": parts.hostname or "",
-        "port": parts.port or 1080,
-        "username": parts.username,
-        "password": parts.password,
-    }
+    hostname = parts.hostname or ""
+    port = parts.port or 1080
+    if parts.scheme == "socks5":
+        return SOCKS5Proxy(hostname=hostname, port=port, username=parts.username, password=parts.password)
+    if parts.scheme == "socks4":
+        return SOCKS4Proxy(hostname=hostname, port=port, username=parts.username, password=parts.password)
+    return HTTPProxy(hostname=hostname, port=port, username=parts.username, password=parts.password)
 
 
-def _find_large_ints(value, path: str = "") -> list[tuple[str, int]]:
+def _reply(reply_to_message_id: int | None) -> ReplyParameters | None:
+    """回复目标 -> ReplyParameters。
+
+    kurigram 2.2.26 起 reply_to_message_id / reply_to_chat_id / quote_* 等平铺参数已弃用
+    (传了会打弃用日志),统一改用 ReplyParameters。
+    """
+    if reply_to_message_id is None:
+        return None
+    return ReplyParameters(message_id=reply_to_message_id)
+
+
+def _chat_id_of(message: Message) -> int | None:
+    """消息所属 chat 的数字 id(chat 缺失或 id 未填充时返回 None)。"""
+    chat_id = getattr(getattr(message, "chat", None), "id", None)
+    return chat_id if isinstance(chat_id, int) else None
+
+
+def _find_large_ints(value: Any, path: str = "") -> list[tuple[str, int]]:
     """递归查找参数中绝对值超过 2^53 的整数(JS 客户端 JSON 传输会丢精度)。"""
     found: list[tuple[str, int]] = []
     if isinstance(value, bool):
@@ -58,7 +84,7 @@ def _find_large_ints(value, path: str = "") -> list[tuple[str, int]]:
     return found
 
 
-def _coerce_numeric_strings(value):
+def _coerce_numeric_strings(value: Any) -> Any:
     """把纯数字字符串(-?\\d+)转 int;JS 精度丢失场景下用户可用字符串传大整数。"""
     if isinstance(value, str) and re.fullmatch(r"-?\d+", value):
         return int(value)
@@ -69,7 +95,7 @@ def _coerce_numeric_strings(value):
     return value
 
 
-def _has_numeric_strings(value) -> bool:
+def _has_numeric_strings(value: Any) -> bool:
     if isinstance(value, str) and re.fullmatch(r"-?\d+", value):
         return True
     if isinstance(value, dict):
@@ -85,7 +111,7 @@ class TelegramClient:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._client: Client | None = None
-        self.me = None
+        self._me: User | None = None
         self.bus = EventBus()
 
     @property
@@ -95,11 +121,19 @@ class TelegramClient:
     def _client_name(self) -> str:
         """pyrogram Client 名 = 会话文件名(与 session_file 保持一致)。"""
         return f"u_{self.settings.api_id}"
+
     @property
     def raw(self) -> Client:
         if self._client is None:
             raise McpError(SESSION_INVALID, "Telegram 会话未连接")
         return self._client
+
+    @property
+    def me(self) -> User:
+        """当前登录用户(与 raw 一致:未连接时给出明确错误,而不是抛 AttributeError)。"""
+        if self._me is None:
+            raise McpError(SESSION_INVALID, "Telegram 会话未连接")
+        return self._me
 
     @property
     def connected(self) -> bool:
@@ -123,12 +157,23 @@ class TelegramClient:
         )
         try:
             await self._client.start()
-            self.me = await self._client.get_me()
+            me = await self._client.get_me()
+            if me is None:
+                raise McpError(SESSION_INVALID, "未取到登录用户信息,会话可能已失效")
+            self._me = me
             self._register_update_handlers()
         except McpError:
             raise
         except Exception as exc:
             raise to_mcp_error(exc) from exc
+
+    async def resolve_chat_id(self, chat_ref: int | str) -> int:
+        """按 id/@username 解析出数字 chat_id;解析不到时给出明确错误。"""
+        chat = await self.raw.get_chat(chat_ref)
+        chat_id = getattr(chat, "id", None)
+        if not isinstance(chat_id, int):
+            raise McpError("CHAT_NOT_FOUND", f"找不到 chat: {chat_ref}")
+        return chat_id
 
     def _register_update_handlers(self) -> None:
         """注册更新 handler -> 事件总线。handler 在客户端事件循环上执行。"""
@@ -143,51 +188,67 @@ class TelegramClient:
         if client is None:
             return
 
-        async def on_message(_c, message) -> None:
-            ts = getattr(message, "date", None)
+        async def on_message(_c: Client, message: Message) -> None:
+            chat_id = _chat_id_of(message)
+            if chat_id is None:  # 会话/频道消息理论上都有 chat,防御性跳过
+                return
+            ts = message.date
             self.bus.push(
                 "message",
-                message.chat.id,
+                chat_id,
                 message_view(message),
                 ts=ts.timestamp() if ts else None,
             )
 
-        async def on_edited(_c, message) -> None:
-            ts = getattr(message, "edit_date", None) or getattr(message, "date", None)
+        async def on_edited(_c: Client, message: Message) -> None:
+            chat_id = _chat_id_of(message)
+            if chat_id is None:
+                return
+            ts = message.edit_date or message.date
             self.bus.push(
                 "edited_message",
-                message.chat.id,
+                chat_id,
                 message_view(message),
                 ts=ts.timestamp() if ts else None,
             )
 
-        async def on_reaction(_c, reaction) -> None:
-            new = getattr(reaction, "new_reaction", None)
+        async def on_reaction(_c: Client, reaction: MessageReactionUpdated) -> None:
+            # new_reaction 是 Reaction 列表(一次变更多个),逐个取 emoji 与自定义表情 id
+            new = reaction.new_reaction or []
+            chat_id = getattr(reaction.chat, "id", None)
+            if not isinstance(chat_id, int):
+                return
+            user = getattr(reaction, "user", None)
             payload = {
-                "chat_id": getattr(getattr(reaction, "chat", None), "id", None),
-                "message_id": getattr(reaction, "message_id", None),
+                "chat_id": chat_id,
+                "message_id": reaction.message_id,
                 "user": {
-                    "id": getattr(getattr(reaction, "user", None), "id", None),
-                    "username": getattr(getattr(reaction, "user", None), "username", None),
-                    "is_bot": bool(getattr(getattr(reaction, "user", None), "is_bot", False)),
+                    "id": getattr(user, "id", None),
+                    "username": getattr(user, "username", None),
+                    "is_bot": bool(getattr(user, "is_bot", False)),
                 },
-                "emoji": getattr(new, "emoji", None),
-                "custom_emoji_id": getattr(new, "custom_emoji_id", None),
+                "emoji": next((r.emoji for r in new if r.emoji), None),
+                "custom_emoji_id": next((r.custom_emoji_id for r in new if r.custom_emoji_id), None),
+                "emojis": [r.emoji for r in new if r.emoji],
+                "custom_emoji_ids": [r.custom_emoji_id for r in new if r.custom_emoji_id],
             }
-            ts = getattr(reaction, "date", None)
+            ts = reaction.date
             self.bus.push(
                 "reaction",
-                payload["chat_id"],
+                chat_id,
                 payload,
                 ts=ts.timestamp() if ts else None,
             )
 
-        async def on_deleted(_c, messages) -> None:
+        async def on_deleted(_c: Client, messages: list[Message]) -> None:
             for m in messages:
+                chat_id = _chat_id_of(m)
+                if chat_id is None:
+                    continue
                 self.bus.push(
                     "deleted_message",
-                    m.chat.id,
-                    {"chat_id": m.chat.id, "message_id": m.id},
+                    chat_id,
+                    {"chat_id": chat_id, "message_id": m.id},
                 )
 
         client.add_handler(MessageHandler(on_message))
@@ -203,10 +264,9 @@ class TelegramClient:
             except Exception as exc:  # noqa: BLE001 - 停止失败不影响进程退出
                 logger.debug("关闭客户端时出错: {}", exc)
             self._client = None
+            self._me = None
 
     async def whoami(self) -> dict:
-        if self._client is None or self.me is None:
-            raise McpError(SESSION_INVALID, "Telegram 会话未连接")
         view = user_view(self.me)
         view["dc_id"] = getattr(getattr(self._client, "session", None), "dc_id", None)
         view["session_file"] = str(self.session_file)
@@ -236,7 +296,7 @@ class TelegramClient:
             chat_id,
             text,
             parse_mode=_parse_mode(parse_mode),
-            reply_to_message_id=reply_to_message_id,
+            reply_parameters=_reply(reply_to_message_id),
         )
         return message_view(msg)
 
@@ -251,9 +311,9 @@ class TelegramClient:
         msg = await self.raw.send_photo(
             chat_id,
             media,
-            caption=caption,
+            caption=caption or "",
             parse_mode=_parse_mode(parse_mode),
-            reply_to_message_id=reply_to_message_id,
+            reply_parameters=_reply(reply_to_message_id),
         )
         return message_view(msg)
 
@@ -268,16 +328,14 @@ class TelegramClient:
         msg = await self.raw.send_document(
             chat_id,
             media,
-            caption=caption,
+            caption=caption or "",
             parse_mode=_parse_mode(parse_mode),
-            reply_to_message_id=reply_to_message_id,
+            reply_parameters=_reply(reply_to_message_id),
         )
         return message_view(msg)
 
     async def edit_message(self, chat_id: int, message_id: int, text: str) -> dict:
-        msg = await self.raw.edit_message_text(
-            chat_id, message_id, text, parse_mode=_parse_mode("none")
-        )
+        msg = await self.raw.edit_message_text(chat_id, message_id, text, parse_mode=_parse_mode("none"))
         return message_view(msg)
 
     async def delete_message(self, chat_id: int, message_id: int) -> dict:
@@ -297,8 +355,8 @@ class TelegramClient:
 
     async def start_bot(self, bot_username: str, param: str = "") -> dict:
         """给 bot 发 /start(可带参),返回启动消息;自动解析 id 供白名单校验。"""
-        chat = await self.raw.get_chat(bot_username)
-        msg = await self.raw.start_bot(chat.id, param=param)
+        chat_id = await self.resolve_chat_id(bot_username)
+        msg = await self.raw.start_bot(chat_id, param=param)
         return message_view(msg)
 
     async def click_inline_button(
@@ -334,11 +392,7 @@ class TelegramClient:
             for row in markup.inline_keyboard:
                 for b in row:
                     cb = b.callback_data
-                    cb_s = (
-                        cb.decode("utf-8", errors="replace")
-                        if isinstance(cb, bytes)
-                        else str(cb or "")
-                    )
+                    cb_s = cb.decode("utf-8", errors="replace") if isinstance(cb, bytes) else str(cb or "")
                     if cb_s == data:
                         target = b
                         break
@@ -356,9 +410,7 @@ class TelegramClient:
             try:
                 target = markup.inline_keyboard[row_index][col_index]
             except IndexError as exc:
-                raise McpError(
-                    "BUTTON_NOT_FOUND", f"按钮下标越界: row={row_index} col={col_index}"
-                ) from exc
+                raise McpError("BUTTON_NOT_FOUND", f"按钮下标越界: row={row_index} col={col_index}") from exc
 
         if target is None:
             raise McpError(
@@ -391,10 +443,10 @@ class TelegramClient:
         if isinstance(cb, str):
             cb = cb.encode()
         peer = await self.raw.resolve_peer(chat_id)
+        if peer is None:
+            raise McpError(INTERNAL, f"无法解析 chat_id={chat_id} 的 peer(会话/权限异常)")
         try:
-            result = await self.raw.invoke(
-                GetBotCallbackAnswer(peer=peer, msg_id=message_id, data=cb, game=False)
-            )
+            result = await self.raw.invoke(GetBotCallbackAnswer(peer=peer, msg_id=message_id, data=cb, game=False))
         except Exception as exc:
             # DATA_INVALID 常见于"按钮已被消耗/消息已被 bot 更新"——
             # 点击可能实际已生效,重新拉消息确认
@@ -406,8 +458,7 @@ class TelegramClient:
                     return {
                         "type": "already_processed",
                         "text": target.text,
-                        "note": "点击已生效:消息已被 bot 更新(按钮 data 失效属正常),"
-                        "请重新获取消息查看新状态",
+                        "note": "点击已生效:消息已被 bot 更新(按钮 data 失效属正常),请重新获取消息查看新状态",
                         "message_edit_date": new_edit.isoformat() if new_edit else None,
                     }
             raise to_mcp_error(exc) from exc
@@ -421,9 +472,7 @@ class TelegramClient:
             "cache_time": getattr(result, "cache_time", None),
         }
 
-    async def send_reaction(
-        self, chat_id: int, message_id: int, emoji: str, big: bool = False
-    ) -> dict:
+    async def send_reaction(self, chat_id: int, message_id: int, emoji: str, big: bool = False) -> dict:
         """给消息发送 reaction(测试 bot 的 reaction 处理)。"""
         await self.raw.send_reaction(chat_id, message_id, emoji, big=big)
         return {
@@ -448,15 +497,13 @@ class TelegramClient:
             media,
             caption=caption or "",
             parse_mode=_parse_mode(parse_mode),
-            reply_to_message_id=reply_to_message_id,
+            reply_parameters=_reply(reply_to_message_id),
         )
         return message_view(msg)
 
-    async def send_sticker(
-        self, chat_id: int, media: str, reply_to_message_id: int | None = None
-    ) -> dict:
+    async def send_sticker(self, chat_id: int, media: str, reply_to_message_id: int | None = None) -> dict:
         """发送贴纸。media:本地 .webp 路径 | Telegram file_id | http(s) URL。"""
-        msg = await self.raw.send_sticker(chat_id, media, reply_to_message_id=reply_to_message_id)
+        msg = await self.raw.send_sticker(chat_id, media, reply_parameters=_reply(reply_to_message_id))
         return message_view(msg)
 
     async def send_media_group(
@@ -493,9 +540,7 @@ class TelegramClient:
                 src = item.get("media")
                 if not src:
                     raise McpError(INTERNAL, "media_group 条目需包含 media(路径/file_id/URL)")
-                kind = item.get("type") or (
-                    "photo" if str(src).lower().endswith(_IMAGE_EXT) else "document"
-                )
+                kind = item.get("type") or ("photo" if str(src).lower().endswith(_IMAGE_EXT) else "document")
                 if kind not in _MEDIA_CLS:
                     raise McpError(
                         INTERNAL,
@@ -512,9 +557,7 @@ class TelegramClient:
                 raise McpError(INTERNAL, f"media_group 条目类型不支持: {type(item).__name__}")
         if not items:
             raise McpError(INTERNAL, "media_group 不能为空")
-        msgs = await self.raw.send_media_group(
-            chat_id, items, reply_to_message_id=reply_to_message_id
-        )
+        msgs = await self.raw.send_media_group(chat_id, items, reply_parameters=_reply(reply_to_message_id))
         return {
             "count": len(msgs),
             "media_group_id": getattr(msgs[0], "media_group_id", None) if msgs else None,
@@ -536,11 +579,14 @@ class TelegramClient:
     ) -> dict:
         """发送投票/测验。options 为选项文本列表;is_quiz 时可用 correct_option_id(0 基)+ explanation。"""
         from pyrogram.enums import PollType
+        from pyrogram.types import InputPollOption
 
+        # kurigram 声明 options 为 list[str | InputPollOption],list 不变型故显式标注
+        poll_options: list[str | InputPollOption] = list(options)
         msg = await self.raw.send_poll(
             chat_id,
             question,
-            options,
+            poll_options,
             is_anonymous=is_anonymous,
             allows_multiple_answers=allows_multiple_answers or None,
             allows_revoting=allows_revoting or None,
@@ -549,6 +595,8 @@ class TelegramClient:
             explanation=explanation,
             open_period=open_period,
         )
+        if msg is None:
+            raise McpError(INTERNAL, "send_poll 未返回消息")
         return message_view(msg)
 
     async def vote_poll(self, chat_id: int, message_id: int, options: int | list[int]) -> dict:
@@ -556,9 +604,7 @@ class TelegramClient:
         poll = await self.raw.vote_poll(chat_id, message_id, options)
         return poll_view(poll) or {}
 
-    async def forward_message(
-        self, chat_id: int, from_chat_id: int, message_ids: int | list[int]
-    ) -> dict:
+    async def forward_message(self, chat_id: int, from_chat_id: int, message_ids: int | list[int]) -> dict:
         """转发消息(如"把频道文章转发给 bot")。message_ids:单条或列表。"""
         ids = [message_ids] if isinstance(message_ids, int) else list(message_ids)
         msgs = await self.raw.forward_messages(chat_id, from_chat_id, ids)
@@ -591,9 +637,7 @@ class TelegramClient:
         count = await self.raw.get_chat_members_count(chat_id)
         return {"chat_id": chat_id, "members_count": count}
 
-    async def send_inline_query(
-        self, bot_username: str, query: str = "", offset: str = ""
-    ) -> dict:
+    async def send_inline_query(self, bot_username: str, query: str = "", offset: str = "") -> dict:
         """向 bot 发起 inline 查询(模拟用户在输入框输入 @bot query),返回 bot 的答案。
 
         Telegram 要求 bot 开启 inline mode;bot 10 秒不应答会超时。
@@ -617,26 +661,35 @@ class TelegramClient:
             "cache_time": getattr(results, "cache_time", None),
             "next_offset": getattr(results, "next_offset", None) or "",
             "switch_pm": (
-                {"text": getattr(switch_pm, "text", None), "start_param": getattr(switch_pm, "start_param", None)}
+                {
+                    "text": getattr(switch_pm, "text", None),
+                    "start_param": getattr(switch_pm, "start_param", None),
+                }
                 if switch_pm is not None
                 else None
             ),
             "results": [inline_result_view(r) for r in (results.results or [])],
         }
 
-
     # ---------- 读取 ----------
 
     async def get_chat(self, chat_id: int) -> dict:
         return chat_view(await self.raw.get_chat(chat_id))
 
-    async def get_chat_history(
-        self, chat_id: int, limit: int = 50, offset_id: int | None = None
-    ) -> dict:
-        messages = [
-            message_view(m)
-            async for m in self.raw.get_chat_history(chat_id, limit=limit, offset_id=offset_id)
-        ]
+    async def get_chat_history(self, chat_id: int, limit: int = 50, offset_id: int | None = None) -> dict:
+        """读取聊天历史(新→旧)。offset_id 为游标:只返回比它更旧的消息。
+
+        kurigram 2.2.26 起 get_chat_history 的 offset_id 参数已弃用,且实现里会被静默忽略
+        (等价于每次都从最新一条开始);改用 max_id 表达同一语义。
+        max_id=0 会被 kurigram 当作"未提供",故已到最早一条时直接返回空页。
+        """
+        if offset_id:
+            if offset_id <= 1:  # 消息 id 从 1 开始,没有更旧的消息
+                return {"chat_id": chat_id, "count": 0, "next_offset_id": None, "messages": []}
+            max_id = offset_id - 1
+        else:
+            max_id = 0
+        messages = [message_view(m) async for m in self.raw.get_chat_history(chat_id, limit=limit, max_id=max_id)]
         next_offset_id = messages[-1]["message_id"] if len(messages) == limit else None
         return {
             "chat_id": chat_id,
@@ -672,9 +725,7 @@ class TelegramClient:
         return {"count": len(dialogs), "dialogs": dialogs}
 
     async def search_messages(self, chat_id: int, query: str, limit: int = 20) -> dict:
-        messages = [
-            message_view(m) async for m in self.raw.search_messages(chat_id, query, limit=limit)
-        ]
+        messages = [message_view(m) async for m in self.raw.search_messages(chat_id, query, limit=limit)]
         return {
             "chat_id": chat_id,
             "query": query,
@@ -690,9 +741,7 @@ class TelegramClient:
         from pyrogram.raw.functions import contacts
 
         try:
-            resolved = await self.raw.invoke(
-                contacts.ResolveUsername(username=bot_username.removeprefix("@"))
-            )
+            resolved = await self.raw.invoke(contacts.ResolveUsername(username=bot_username.removeprefix("@")))
             if not resolved.users:
                 return {}
             u = resolved.users[0]
@@ -734,9 +783,7 @@ class TelegramClient:
             # 首次按字符串构建类型失败时,尝试按 int 解析重试
             if _has_numeric_strings(params):
                 try:
-                    result = await self.raw.invoke(
-                        cls(**build_value(_coerce_numeric_strings(params)))
-                    )
+                    result = await self.raw.invoke(cls(**build_value(_coerce_numeric_strings(params))))
                 except Exception as retry_exc:  # noqa: BLE001
                     # 重试已到 Telegram 层,其错误更接近真实原因;
                     # 首次的 to_bytes 等只是字符串序列化噪音,应替换掉(错误遮蔽修复)
@@ -764,7 +811,7 @@ class TelegramClient:
                     INTERNAL,
                     f"raw 参数格式错误:嵌套对象作为具名参数的值传入,"
                     f'如 {{"peer": {{"_": "inputPeerEmpty"}}}};'
-                    f'整个参数对象只包含 {function} 的具名参数,'
+                    f"整个参数对象只包含 {function} 的具名参数,"
                     f'参数名与类型见 get_raw_method_info("{function}")',
                 ) from exc
             m = re.search(r"missing (\d+) required keyword-only arguments: (.+)", msg)
@@ -810,11 +857,16 @@ class TelegramClient:
         out = await self.raw.download_media(msg, file_name=path)
         if out is None:
             raise McpError("NO_MEDIA", f"消息 {message_id} 媒体下载失败")
+        if isinstance(out, list):
+            # 付费媒体等多文件消息会返回路径列表:只落地主文件,避免把列表当路径
+            if not out:
+                raise McpError("NO_MEDIA", f"消息 {message_id} 媒体下载失败")
+            out = out[0]
         p = Path(out)
         return {"path": str(p.resolve()), "size_bytes": p.stat().st_size}
 
 
-def _parse_mode(parse_mode: str | None):
+def _parse_mode(parse_mode: str | None) -> ParseMode | None:
     """'none' | 'markdown' | 'html' -> pyrogram ParseMode;None 保持客户端默认。
 
     注:parse_mode 支持 none/markdown/html 三种;需要剧透/下划线等格式时
@@ -828,6 +880,4 @@ def _parse_mode(parse_mode: str | None):
     try:
         return ParseMode[key]
     except KeyError as exc:
-        raise McpError(
-            INTERNAL, f"不支持的 parse_mode: {parse_mode}(支持: none/markdown/html)"
-        ) from exc
+        raise McpError(INTERNAL, f"不支持的 parse_mode: {parse_mode}(支持: none/markdown/html)") from exc

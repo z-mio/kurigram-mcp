@@ -11,6 +11,7 @@ from __future__ import annotations
 import time
 
 from loguru import logger
+from pyrogram import Client
 
 from .errors import INTERNAL, McpError
 
@@ -19,7 +20,7 @@ _USERNAME_CACHE: dict[str, tuple[int, float]] = {}
 _USERNAME_TTL = 60.0
 
 
-async def resolve_username(client, name: str, me_id: int) -> int:
+async def resolve_username(client: Client, name: str, me_id: int) -> int:
     """解析 @username / me -> 数字 chat_id(TTL 缓存;client 需提供 async get_chat)。
 
     供白名单与工具层 chat_id 参数共用,保证同一用户名在同一窗口期解析一致。
@@ -32,8 +33,12 @@ async def resolve_username(client, name: str, me_id: int) -> int:
     if cached and now - cached[1] < _USERNAME_TTL:
         return cached[0]
     chat = await client.get_chat(key)
-    _USERNAME_CACHE[key] = (chat.id, now)
-    return chat.id
+    chat_id = getattr(chat, "id", None)
+    if not isinstance(chat_id, int):
+        # 未知用户名通常由 kurigram 直接抛 RPC 错误;走到这里说明返回了空 chat
+        raise McpError(INTERNAL, f"无法解析 username: {name}")
+    _USERNAME_CACHE[key] = (chat_id, now)
+    return chat_id
 
 
 class AccessControl:
@@ -52,7 +57,7 @@ class AccessControl:
             else:
                 self._usernames.add(entry.removeprefix("@"))
 
-    async def resolve(self, client, me_id: int) -> None:
+    async def resolve(self, client: Client, me_id: int) -> None:
         """解析 me 与 @username;client 需提供 async get_chat(name)。"""
         if self._want_me:
             self._ids.add(me_id)

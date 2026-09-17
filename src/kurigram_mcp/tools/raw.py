@@ -8,11 +8,11 @@ from ..telegram.raw import get_function_info, list_functions
 from .common import ServerState, wrap_errors
 
 
-def register(mcp: MCPServer) -> None:
+def register(mcp: MCPServer[ServerState]) -> None:
     @mcp.tool()
     @wrap_errors
     async def raw_invoke(
-        ctx: Context,
+        ctx: Context[ServerState],
         function: str,
         params: dict | None = None,
         account: str | None = None,
@@ -35,14 +35,14 @@ def register(mcp: MCPServer) -> None:
         注意:raw 调用直接执行你指定的任意 MTProto 函数(可含删除、修改账号设置等操作),
         调用前请自行确认函数作用域,谨慎使用。
         """
-        state: ServerState = ctx.request_context.lifespan_context
+        state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         return await client.raw_invoke(function, params or {})
 
     @mcp.tool()
     @wrap_errors
     async def list_raw_methods(
-        ctx: Context,
+        ctx: Context[ServerState],
         query: str | None = None,
         module: str | None = None,
         limit: int = 50,
@@ -57,7 +57,7 @@ def register(mcp: MCPServer) -> None:
 
     @mcp.tool()
     @wrap_errors
-    async def get_raw_method_info(ctx: Context, name: str) -> dict:
+    async def get_raw_method_info(ctx: Context[ServerState], name: str) -> dict:
         """查询单个 raw MTProto 函数的完整定义:参数名、参数类型、返回类型。
 
         在调用 raw_invoke 前先查这里,避免参数名/类型错误。

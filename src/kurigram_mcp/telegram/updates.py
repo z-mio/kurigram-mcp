@@ -48,9 +48,7 @@ class EventBus:
             return
         seq = next(self._counter)
         self._seq = seq
-        ev = BusEvent(
-            seq=seq, type=event_type, chat_id=chat_id, payload=payload, ts=ts or time.time()
-        )
+        ev = BusEvent(seq=seq, type=event_type, chat_id=chat_id, payload=payload, ts=ts or time.time())
         self._stream.append(ev)
         self._notify_waiters(ev)
 
@@ -66,9 +64,7 @@ class EventBus:
                 fut.set_result(ev)
                 self._waiters.remove((fut, pred))
 
-    async def wait(
-        self, predicate: Predicate, timeout: float, lookback_seconds: float = 60.0
-    ) -> BusEvent | None:
+    async def wait(self, predicate: Predicate, timeout: float, lookback_seconds: float = 60.0) -> BusEvent | None:
         """等待匹配事件;超时返回 None。lookback 窗口内已有匹配事件则立即返回。
 
         lookback 必须覆盖"事件先到、wait 后注册"的竞态:bot 常在同一秒内回复,
@@ -94,14 +90,10 @@ class EventBus:
         finally:
             self._waiters = [(f, p) for (f, p) in self._waiters if f is not fut]
 
-    def drain(
-        self, cursor: int | None, chat_id: int | None = None, limit: int = 100
-    ) -> tuple[int, list[BusEvent]]:
+    def drain(self, cursor: int | None, chat_id: int | None = None, limit: int = 100) -> tuple[int, list[BusEvent]]:
         """自 cursor 起的事件(可过滤 chat);返回(新 cursor, 事件)。"""
         events = [
-            e
-            for e in self._stream
-            if (cursor is None or e.seq > cursor) and (chat_id is None or e.chat_id == chat_id)
+            e for e in self._stream if (cursor is None or e.seq > cursor) and (chat_id is None or e.chat_id == chat_id)
         ]
         if limit and len(events) > limit:
             events = events[-limit:]

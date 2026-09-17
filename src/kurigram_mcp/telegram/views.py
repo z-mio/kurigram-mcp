@@ -1,12 +1,19 @@
-"""Telegram 对象 -> 扁平 JSON 的序列化视图。"""
+"""Telegram 对象 -> 扁平 JSON 的序列化视图。
+
+本模块刻意采用鸭子类型:入参既可能是 pyrogram 高层对象(User/Chat/Message/Poll…),
+也可能是 raw 对象或测试里的 SimpleNamespace 替身。统一标注为 Any,
+避免把"缺字段也不报错"的容错语义钉死在某一个具体类型上。
+"""
 
 from __future__ import annotations
 
 import html
 import re
+from datetime import datetime
+from typing import Any
 
 
-def _verification_view(obj) -> dict:
+def _verification_view(obj: Any) -> dict:
     """verification_status -> 扁平 dict。
 
     kurigram 2.2.25+ 将 User/Chat 的 is_verified/is_scam/is_fake 标记为弃用,
@@ -22,7 +29,7 @@ def _verification_view(obj) -> dict:
     }
 
 
-def user_view(user) -> dict:
+def user_view(user: Any) -> dict:
     """pyrogram User -> 扁平 dict(缺字段容错)。"""
     fields = (
         "id",
@@ -39,7 +46,7 @@ def user_view(user) -> dict:
     return view
 
 
-def chat_view(chat) -> dict:
+def chat_view(chat: Any) -> dict:
     """pyrogram Chat -> 扁平 dict。"""
     fields = (
         "id",
@@ -71,7 +78,7 @@ def chat_view(chat) -> dict:
     return view
 
 
-def user_ref(user) -> dict | None:
+def user_ref(user: Any) -> dict | None:
     """消息中的发送者摘要。"""
     if user is None:
         return None
@@ -83,14 +90,12 @@ def user_ref(user) -> dict | None:
     }
 
 
-def _button_view(btn) -> dict:
+def _button_view(btn: Any) -> dict:
     """InlineKeyboardButton -> 扁平 dict。"""
     out: dict = {"text": btn.text}
     cb = getattr(btn, "callback_data", None)
     if cb is not None:
-        out["callback_data"] = (
-            cb.decode("utf-8", errors="replace") if isinstance(cb, bytes) else str(cb)
-        )
+        out["callback_data"] = cb.decode("utf-8", errors="replace") if isinstance(cb, bytes) else str(cb)
     if getattr(btn, "url", None):
         out["url"] = btn.url
     web_app = getattr(btn, "web_app", None)
@@ -105,7 +110,7 @@ def _button_view(btn) -> dict:
     return out
 
 
-def markup_view(markup) -> dict | None:
+def markup_view(markup: Any) -> dict | None:
     """reply_markup -> 扁平 dict(按钮文本 + callback_data/url)。"""
     if markup is None:
         return None
@@ -117,19 +122,20 @@ def markup_view(markup) -> dict | None:
             "rows": [[_button_view(b) for b in row] for row in markup.inline_keyboard],
         }
     if isinstance(markup, ReplyKeyboardMarkup):
+        # kurigram 的 keyboard 允许纯字符串按钮(str | KeyboardButton)
         return {
             "type": "reply",
-            "rows": [[{"text": b.text} for b in row] for row in markup.keyboard],
+            "rows": [[{"text": b if isinstance(b, str) else b.text} for b in row] for row in markup.keyboard],
         }
     return {"type": type(markup).__name__}
 
 
-def poll_view(poll) -> dict | None:
+def poll_view(poll: Any) -> dict | None:
     """pyrogram Poll -> 扁平 dict(投票类工具返回)。"""
     if poll is None:
         return None
     options = []
-    for o in (getattr(poll, "options", None) or []):
+    for o in getattr(poll, "options", None) or []:
         # 新版属性名 voter_count;旧版 voters 兜底
         voters = getattr(o, "voter_count", None)
         if voters is None:
@@ -145,15 +151,14 @@ def poll_view(poll) -> dict | None:
         "id": getattr(poll, "id", None),
         "question": getattr(poll, "question", None),
         "options": options,
-        "total_voters": getattr(poll, "total_voters", None)
-        or getattr(poll, "total_voter_count", None),
+        "total_voters": getattr(poll, "total_voters", None) or getattr(poll, "total_voter_count", None),
         "is_closed": bool(getattr(poll, "is_closed", False)),
         "is_anonymous": bool(getattr(poll, "is_anonymous", False)),
         "type": getattr(getattr(poll, "type", None), "value", None),
     }
 
 
-def inline_result_view(result) -> dict:
+def inline_result_view(result: Any) -> dict:
     """raw BotInlineResult/BotInlineMediaResult -> 扁平 dict(内联查询结果)。"""
     out: dict = {
         "id": getattr(result, "id", None),
@@ -173,7 +178,7 @@ def inline_result_view(result) -> dict:
     return out
 
 
-def _iso(ts) -> str | None:
+def _iso(ts: datetime | None) -> str | None:
     """datetime -> ISO 字符串;naive UTC 补 Z 后缀,避免被误读为本地时间。"""
     if ts is None:
         return None
@@ -183,7 +188,7 @@ def _iso(ts) -> str | None:
     return iso
 
 
-def _rich_text(node) -> str:
+def _rich_text(node: Any) -> str:
     """raw RichText -> 纯文本(递归)。
 
     Telegram 富消息(layer 228 rich_message)的内容以 RichText 树表达:
@@ -222,7 +227,7 @@ def _rich_text(node) -> str:
     return ""
 
 
-def _rich_message_view(raw_msg) -> dict | None:
+def _rich_message_view(raw_msg: Any) -> dict | None:
     """raw Message.rich_message -> 简化结构 {text, blocks}。
 
     guest bot(AI 回复,如 @mira)的内容以富消息下发:普通 text 为空,
@@ -233,7 +238,7 @@ def _rich_message_view(raw_msg) -> dict | None:
     if rich is None:
         return None
     blocks = []
-    for b in (getattr(rich, "blocks", None) or []):
+    for b in getattr(rich, "blocks", None) or []:
         btext = getattr(b, "text", None)
         name = type(b).__name__
         btype = name.removeprefix("PageBlock").lower() if name.startswith("PageBlock") else "block"
@@ -249,7 +254,7 @@ def _rich_message_view(raw_msg) -> dict | None:
     return {"text": text or None, "blocks": blocks} if blocks else None
 
 
-def _entity_type_label(e) -> str | None:
+def _entity_type_label(e: Any) -> str | None:
     """实体类型 -> 简洁标签。
 
     真实形态:pyrogram 高层 MessageEntity.type 是 MessageEntityType 枚举,
@@ -266,16 +271,14 @@ def _entity_type_label(e) -> str | None:
     return None
 
 
-def _links_of(msg) -> list[dict] | None:
+def _links_of(msg: Any) -> list[dict] | None:
     """从消息 entities/caption_entities 提取超链接(如文本 "WIKI" 实际指向 https://...)。
 
     Telegram 常用"文本+url 实体"表达链接,纯文本视图会丢失 URL——
     子会话实测发现 bot 回复 "Bot使用文档: WIKI" 实际是超链接。
     caption 消息的实体在 caption_entities 而非 entities。
     """
-    entities = list(getattr(msg, "entities", None) or []) + list(
-        getattr(msg, "caption_entities", None) or []
-    )
+    entities = list(getattr(msg, "entities", None) or []) + list(getattr(msg, "caption_entities", None) or [])
     text = getattr(msg, "text", None) or getattr(msg, "caption", None)
     if not entities or not text:
         return None
@@ -293,15 +296,13 @@ def _links_of(msg) -> list[dict] | None:
     return links or None
 
 
-def _entities_of(msg) -> list[dict] | None:
+def _entities_of(msg: Any) -> list[dict] | None:
     """消息实体摘要(类型+文本片段),不含 url 详情(见 links)。
 
     用途:验证格式是否生效——如非 Premium 账号发送 custom_emoji 实体会被
     Telegram 静默丢弃,读回后 entities 为空即可发现降级。
     """
-    entities = list(getattr(msg, "entities", None) or []) + list(
-        getattr(msg, "caption_entities", None) or []
-    )
+    entities = list(getattr(msg, "entities", None) or []) + list(getattr(msg, "caption_entities", None) or [])
     text = getattr(msg, "text", None) or getattr(msg, "caption", None)
     if not entities or not text:
         return None
@@ -316,7 +317,7 @@ def _entities_of(msg) -> list[dict] | None:
     return out or None
 
 
-def message_view(msg) -> dict:
+def message_view(msg: Any) -> dict:
     """pyrogram Message -> 扁平 dict(AI 友好)。"""
     from_user = getattr(msg, "from_user", None)
     out = bool(getattr(msg, "out", False)) or bool(getattr(from_user, "is_self", False))

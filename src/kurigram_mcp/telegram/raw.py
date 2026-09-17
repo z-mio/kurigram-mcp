@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
+from typing import Any
 
 from pyrogram.raw import functions, types
 from pyrogram.raw.core.tl_object import TLObject
@@ -44,9 +46,7 @@ def resolve_function(path: str) -> type[TLObject]:
     """messages.getHistory -> pyrogram.raw.functions.messages.GetHistory。"""
     parts = path.strip().split(".")
     if len(parts) != 2 or not all(parts):
-        raise McpError(
-            INTERNAL, f"函数名格式应为 module.method(如 messages.getHistory),收到: {path!r}"
-        )
+        raise McpError(INTERNAL, f"函数名格式应为 module.method(如 messages.getHistory),收到: {path!r}")
     mod_name, cls_name = parts
     mod = getattr(functions, mod_name, None)
     if mod is None:
@@ -99,7 +99,7 @@ def _snake_of(cls: type[TLObject]) -> str:
     return name[0].lower() + name[1:]
 
 
-def _iter_functions():
+def _iter_functions() -> Iterator[tuple[str, type[TLObject]]]:
     """迭代所有业务 raw 函数:(path, cls)。"""
     for mod_name in dir(functions):
         if mod_name.startswith("_"):
@@ -119,9 +119,7 @@ def _iter_functions():
                     yield f"{mod_name}.{_snake_of(cls)}", cls
 
 
-def list_functions(
-    query: str | None = None, module: str | None = None, limit: int = 50
-) -> list[dict]:
+def list_functions(query: str | None = None, module: str | None = None, limit: int = 50) -> list[dict]:
     """枚举 raw 函数清单(name + 参数名 + 一句话描述)。"""
     out: list[dict] = []
     q = (query or "").lower()
@@ -151,7 +149,7 @@ def get_function_info(path: str) -> dict:
     return info
 
 
-def build_value(value):
+def build_value(value: Any) -> Any:
     """把 JSON 值递归构造为 raw 对象:{"_": "inputPeerUser", ...} -> InputPeerUser(...)。"""
     if isinstance(value, dict):
         ctor = value.get("_")
@@ -167,7 +165,7 @@ def build_value(value):
     return value
 
 
-def to_plain(obj):
+def to_plain(obj: Any) -> Any:
     """raw 对象/嵌套结构 -> JSON 安全结构(bytes 转 hex)。"""
     if obj is None or isinstance(obj, (str, int, float, bool)):
         return obj

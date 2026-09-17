@@ -66,9 +66,7 @@ def run_setup() -> int:
     print("=== kurigram-mcp 配置向导 ===")
     print(f"配置文件: {cfg_path}\n")
 
-    api_id = _ask(
-        "API_ID(my.telegram.org/apps)", existing.get("api_id") and str(existing["api_id"])
-    )
+    api_id = _ask("API_ID(my.telegram.org/apps)", existing.get("api_id") and str(existing["api_id"]))
     api_hash = _ask("API_HASH", existing.get("api_hash"), secret=True)
     allowed = _ask(
         "ALLOWED_CHAT_IDS(逗号分隔:数字 id / @username / me,可留空)",
@@ -80,7 +78,8 @@ def run_setup() -> int:
     existing_token = existing.get("auth_token") or secrets.token_urlsafe(24)
     if not existing.get("auth_token"):
         print(
-            f"\n🔑 已自动生成 AUTH_TOKEN:\n   {existing_token}\n   请复制到客户端配置(Authorization: Bearer {existing_token})"
+            f"\n🔑 已自动生成 AUTH_TOKEN:\n   {existing_token}\n   "
+            f"请复制到客户端配置(Authorization: Bearer {existing_token})"
         )
 
     data = {

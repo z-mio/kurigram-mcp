@@ -26,6 +26,7 @@ _HEADER = "# kurigram-mcp 配置(由 `kurigram-mcp setup` / `session` 命令维�
 
 # ---- 底层读写 ----
 
+
 def load_raw(path: Path | None = None) -> dict:
     """读取 config.yaml 原始 dict;文件缺失/损坏时返回 {}。"""
     path = path or default_config_path()
@@ -57,6 +58,7 @@ def _session_file(settings: Settings, api_id: int) -> Path:
 
 
 # ---- 查询 ----
+
 
 def list_sessions(settings: Settings) -> list[dict]:
     """按展示顺序返回账号行:default 优先,随后是命名账号。"""
@@ -93,6 +95,7 @@ def list_sessions(settings: Settings) -> list[dict]:
 
 
 # ---- 增删 ----
+
 
 def validate_new_session(
     settings: Settings,
@@ -224,6 +227,10 @@ def remove_session(settings: Settings, name: str, force: bool = False) -> dict:
     data = load_raw()
     name = name.strip()
 
+    # 两个分支各自赋值:显式声明避免 mypy 按首个分支把类型钉死
+    api_id: int | None
+    target: Path | None
+
     if name == DEFAULT_ACCOUNT:
         if not settings.api_id:
             raise McpError(ACCOUNT_NOT_FOUND, f"账号 '{DEFAULT_ACCOUNT}' 未配置,无需删除")
@@ -250,7 +257,12 @@ def remove_session(settings: Settings, name: str, force: bool = False) -> dict:
         target.unlink()
         deleted_file = True
     logger.info("已删除账号 '{}' (api_id={}) 会话文件删除={}", name, api_id, deleted_file)
-    return {"name": name, "api_id": api_id, "session_file": str(target), "deleted_file": deleted_file}
+    return {
+        "name": name,
+        "api_id": api_id,
+        "session_file": str(target),
+        "deleted_file": deleted_file,
+    }
 
 
 def _confirm_or_force(name: str, session_file: Path | None, force: bool) -> None:
@@ -268,6 +280,7 @@ def _confirm_or_force(name: str, session_file: Path | None, force: bool) -> None
 
 
 # ---- 登录快照回写 ----
+
 
 def update_me(settings: Settings, me: dict) -> None:
     """登录成功后把身份快照写回注册表(default 写顶层 me,命名账号写 sessions[name].me)。"""

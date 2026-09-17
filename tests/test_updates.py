@@ -11,9 +11,7 @@ from kurigram_mcp.telegram.updates import EventBus
 from kurigram_mcp.tools.bot_debug import build_predicate
 
 
-def _ev(
-    bus: EventBus, type_: str = "message", chat_id: int = 1, payload: dict | None = None
-) -> None:
+def _ev(bus: EventBus, type_: str = "message", chat_id: int = 1, payload: dict | None = None) -> None:
     bus.push(type_, chat_id, payload or {})
 
 
@@ -85,9 +83,7 @@ async def test_wait_lookback_covers_agent_round_trip() -> None:
         {"text": "语言代码 xx 无效", "from": {"is_bot": True}, "reply_to_message_id": 11960},
         ts=time.time() - 30,
     )
-    ev = await bus.wait(
-        build_predicate(chat_id=1, from_bot=True, text_contains="语言代码"), timeout=2
-    )
+    ev = await bus.wait(build_predicate(chat_id=1, from_bot=True, text_contains="语言代码"), timeout=2)
     assert ev is not None and ev.payload["text"] == "语言代码 xx 无效"
 
     # 显式收窄窗口:事件滑出 → 等满 timeout 后 miss
@@ -126,9 +122,7 @@ async def test_whitelist_filter_drops_events() -> None:
 
 def test_predicate_reply_to_and_types() -> None:
     bus = EventBus()
-    _ev(
-        bus, "message", 1, payload={"text": "x", "from": {"is_bot": True}, "reply_to_message_id": 7}
-    )
+    _ev(bus, "message", 1, payload={"text": "x", "from": {"is_bot": True}, "reply_to_message_id": 7})
     ev = bus.drain(None)[1][0]
     p1 = build_predicate(chat_id=1, reply_to_message_id=7)
     p2 = build_predicate(chat_id=1, reply_to_message_id=8)
@@ -160,7 +154,12 @@ def test_predicate_media_filters() -> None:
 def test_predicate_text_matches_regex() -> None:
     """正则谓词:金额/格式断言;非法正则不崩(视为不匹配)。"""
     bus = EventBus()
-    _ev(bus, "message", 1, payload={"text": "100.0 USD美元 = 672.5761 CNY人民币", "from": {"is_bot": True}})
+    _ev(
+        bus,
+        "message",
+        1,
+        payload={"text": "100.0 USD美元 = 672.5761 CNY人民币", "from": {"is_bot": True}},
+    )
     _ev(bus, "message", 1, payload={"text": "没有数字", "from": {"is_bot": True}})
     events = bus.drain(None)[1]
     p_amount = build_predicate(chat_id=1, text_matches=r"\d+\.\d+ CNY")

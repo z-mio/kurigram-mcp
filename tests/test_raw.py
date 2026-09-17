@@ -27,9 +27,7 @@ def test_resolve_function_unknown() -> None:
 
 
 def test_build_value_nested_objects() -> None:
-    built = build_value(
-        {"offset_peer": {"_": "inputPeerEmpty"}, "limit": 3, "hash": 0, "tags": [1, "x"]}
-    )
+    built = build_value({"offset_peer": {"_": "inputPeerEmpty"}, "limit": 3, "hash": 0, "tags": [1, "x"]})
     assert built["offset_peer"].__class__.__name__ == "InputPeerEmpty"
     assert built["limit"] == 3
     assert built["tags"] == [1, "x"]
@@ -127,9 +125,7 @@ def test_find_large_ints() -> None:
     from kurigram_mcp.telegram.client import _find_large_ints
 
     assert _find_large_ints({"a": 1, "b": True}) == []
-    assert _find_large_ints({"peer": {"user_id": 123, "access_hash": 2**60}}) == [
-        ("peer.access_hash", 2**60)
-    ]
+    assert _find_large_ints({"peer": {"user_id": 123, "access_hash": 2**60}}) == [("peer.access_hash", 2**60)]
     assert _find_large_ints({"id": [-(2**63)]}) == [("id[0]", -(2**63))]
     assert _find_large_ints({"query_id": 2**53 - 1}) == []  # 恰好安全范围内
 

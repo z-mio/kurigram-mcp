@@ -71,9 +71,7 @@ def test_rich_message_view_extracts_blocks() -> None:
     rich = types.SimpleNamespace(
         blocks=[
             types.SimpleNamespace(
-                text=types.SimpleNamespace(
-                    texts=[_rich_text("你好！🌟 "), _rich_text("有什么想试试的？")]
-                )
+                text=types.SimpleNamespace(texts=[_rich_text("你好！🌟 "), _rich_text("有什么想试试的？")])
             ),
             types.SimpleNamespace(
                 text=types.SimpleNamespace(
@@ -126,9 +124,7 @@ def test_message_view_with_sender_and_media() -> None:
 
 def test_message_view_bot_sender() -> None:
     msg = make_msg(
-        from_user=types.SimpleNamespace(
-            id=6540476263, username="GLBetabot", first_name="GL Beta", is_bot=True
-        )
+        from_user=types.SimpleNamespace(id=6540476263, username="GLBetabot", first_name="GL Beta", is_bot=True)
     )
     assert msg and message_view(msg)["from"]["is_bot"] is True
 
@@ -199,20 +195,35 @@ def test_poll_view_voter_count_fallback() -> None:
 
     # 新版:voter_count
     poll = types.SimpleNamespace(
-        id="1", question="q", options=[types.SimpleNamespace(text="A", voter_count=5, data=None)],
-        total_voters=5, is_closed=False, is_anonymous=True, type=types.SimpleNamespace(value="REGULAR"),
+        id="1",
+        question="q",
+        options=[types.SimpleNamespace(text="A", voter_count=5, data=None)],
+        total_voters=5,
+        is_closed=False,
+        is_anonymous=True,
+        type=types.SimpleNamespace(value="REGULAR"),
     )
     assert poll_view(poll)["options"][0]["voters"] == 5
     # 旧版兜底:voters
     poll2 = types.SimpleNamespace(
-        id="2", question="q", options=[types.SimpleNamespace(text="A", voters=2, data=None)],
-        total_voters=2, is_closed=False, is_anonymous=True, type=types.SimpleNamespace(value="REGULAR"),
+        id="2",
+        question="q",
+        options=[types.SimpleNamespace(text="A", voters=2, data=None)],
+        total_voters=2,
+        is_closed=False,
+        is_anonymous=True,
+        type=types.SimpleNamespace(value="REGULAR"),
     )
     assert poll_view(poll2)["options"][0]["voters"] == 2
     # 都没有 -> 0
     poll3 = types.SimpleNamespace(
-        id="3", question="q", options=[types.SimpleNamespace(text="A", data=None)],
-        total_voters=0, is_closed=False, is_anonymous=True, type=types.SimpleNamespace(value="REGULAR"),
+        id="3",
+        question="q",
+        options=[types.SimpleNamespace(text="A", data=None)],
+        total_voters=0,
+        is_closed=False,
+        is_anonymous=True,
+        type=types.SimpleNamespace(value="REGULAR"),
     )
     assert poll_view(poll3)["options"][0]["voters"] == 0
     assert datetime is not None
@@ -261,15 +272,11 @@ def test_message_view_entities_summary() -> None:
 
 def test_message_view_links() -> None:
     """子会话实测场景:bot 回复 "WIKI" 实际是超链接——视图应暴露 links。"""
-    entity = types.SimpleNamespace(
-        type="url", offset=9, length=4, url="https://wiki.getletbot.com/"
-    )
+    entity = types.SimpleNamespace(type="url", offset=9, length=4, url="https://wiki.getletbot.com/")
     msg = make_msg(text="Bot使用文档: WIKI", caption=None)
     msg.entities = [entity]
     v = message_view(msg)
-    assert v["links"] == [
-        {"text": "WIKI", "url": "https://wiki.getletbot.com/", "type": "url"}
-    ]
+    assert v["links"] == [{"text": "WIKI", "url": "https://wiki.getletbot.com/", "type": "url"}]
     # 无实体 -> None,不崩
     msg2 = make_msg(text="没有链接")
     msg2.entities = None
