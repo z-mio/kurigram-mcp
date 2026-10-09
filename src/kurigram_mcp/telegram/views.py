@@ -218,6 +218,10 @@ def _rich_text(node: Any) -> str:
         return ""
     if isinstance(node, str):
         return node
+    # 内嵌按钮(TextButton 是 RichText 联合成员):渲染为 [label],
+    # 按钮本体由 _text_buttons 收集进 rich.buttons
+    if type(node).__name__ == "TextButton":
+        return f"[{_rich_text(getattr(node, 'text', None))}]"
     url = getattr(node, "url", None)
     email = getattr(node, "email", None)
     user_id = getattr(node, "user_id", None)
@@ -537,32 +541,115 @@ def _page_button_view(pb: Any) -> dict:
     return out
 
 
-def rich_button_rows(raw_msg: Any) -> list[list[Any]]:
-    """raw Message -> 富消息按钮行(raw PageButton,文档顺序)。
+def _text_buttons(node: Any) -> list[Any]:
+    """DFS 收集 RichText 树里的 TextButton 节点(文档顺序)。
 
-    与 _block_view 同一套 DFS 遍历:PageBlockButtonRow 可嵌在 details /
-    blockquoteblocks / 列表项 / collage / embedpost / cover 等容器里。
+    TextButton 是 RichText 联合成员(bot 面板常把它嵌在表格单元格 /
+    段落里);label 内部不再找按钮。
+    """
+    if node is None or isinstance(node, str):
+        return []
+    if type(node).__name__ == "TextButton":
+        return [node]
+    out: list[Any] = []
+    texts = getattr(node, "texts", None)
+    if isinstance(texts, list):
+        for t in texts:
+            out.extend(_text_buttons(t))
+    text = getattr(node, "text", None)
+    if text is not None and not isinstance(text, str):
+        out.extend(_text_buttons(text))
+    return out
+
+
+def _caption_nodes(c: Any) -> list[Any]:
+    """caption 属性 -> RichText 节点列表(PageCaption 拆 text+credit)。"""
+    if c is None:
+        return []
+    if hasattr(c, "credit"):
+        return [n for n in (getattr(c, "text", None), getattr(c, "credit", None)) if n is not None]
+    return [c]
+
+
+def _walk_buttons(raw_msg: Any) -> list[list[tuple[Any, str]]]:
+    """raw Message -> [[(按钮, 位置)]],文档顺序(单一 DFS)。
+
+    按钮来源有两类:PageBlockButtonRow 的 PageButton,以及内嵌在
+    RichText 里的 TextButton(表格单元格 / 列表项 / 段落 / 标题等)。
+    位置标签:buttonrow / table{k}[r][c] / list[i] / 块类型名
+    (k 为 DFS 顺序的全局表格编号)。
     """
     rich = getattr(raw_msg, "rich_message", None)
     if rich is None:
         return []
-    rows: list[list[Any]] = []
+    rows: list[list[tuple[Any, str]]] = []
+    table_i = 0  # 遇到的第 k 个 PageBlockTable(含嵌套),DFS 顺序编号
+
+    def add_text_row(nodes: list[Any], where: str) -> None:
+        btns: list[Any] = []
+        for node in nodes:
+            btns.extend(_text_buttons(node))
+        if btns:
+            rows.append([(b, where) for b in btns])
 
     def walk(blocks: Any) -> None:
         for b in blocks or []:
-            if type(b).__name__ == "PageBlockButtonRow":
-                rows.append(list(getattr(b, "buttons", None) or []))
-                continue
-            if type(b).__name__ == "PageBlockCover":
-                walk([getattr(b, "cover", None)])
-                continue
-            for attr in ("blocks", "items"):
-                children = getattr(b, attr, None)
-                if isinstance(children, list):
-                    walk(children)
+            walk_block(b)
+
+    def walk_block(b: Any) -> None:
+        name = type(b).__name__
+        if name == "PageBlockButtonRow":
+            rows.append([(pb, "buttonrow") for pb in getattr(b, "buttons", None) or []])
+            return
+        if name == "PageBlockTable":
+            # 表格:title 一行,然后每个含按钮的行一行(单元格左->右)
+            nonlocal table_i
+            k = table_i
+            table_i += 1
+            title = getattr(b, "title", None)
+            if title is not None:
+                add_text_row([title], f"table{k}[title]")
+            for r, row in enumerate(getattr(b, "rows", None) or []):
+                btns: list[tuple[Any, str]] = []
+                for c, cell in enumerate(getattr(row, "cells", None) or []):
+                    for tb in _text_buttons(getattr(cell, "text", None)):
+                        btns.append((tb, f"table{k}[{r}][{c}]"))
+                if btns:
+                    rows.append(btns)
+            return
+        if name in ("PageBlockList", "PageBlockOrderedList"):
+            for i, it in enumerate(getattr(b, "items", None) or []):
+                inner = getattr(it, "blocks", None)
+                if inner is not None:
+                    walk(inner)
+                else:
+                    add_text_row([getattr(it, "text", None)], f"list[{i}]")
+            return
+        # 其他块:自身 RichText 属性(title -> text -> caption -> author)里的按钮
+        nodes = [getattr(b, "title", None), getattr(b, "text", None)]
+        nodes += _caption_nodes(getattr(b, "caption", None))
+        nodes.append(getattr(b, "author", None))
+        add_text_row(nodes, name.removeprefix("PageBlock").lower())
+        cover = getattr(b, "cover", None)
+        if cover is not None:
+            walk_block(cover)
+        for attr in ("blocks", "items"):
+            children = getattr(b, attr, None)
+            if isinstance(children, list):
+                walk(children)
 
     walk(getattr(rich, "blocks", None))
     return rows
+
+
+def rich_button_rows(raw_msg: Any) -> list[list[Any]]:
+    """raw Message -> 富消息按钮行(raw PageButton/TextButton,文档顺序)。
+
+    与 _block_view 同一套 DFS 遍历:PageBlockButtonRow 可嵌在 details /
+    blockquoteblocks / 列表项 / collage / embedpost / cover 等容器里,
+    TextButton 可内嵌在表格单元格 / 段落 / 列表项的 RichText 里。
+    """
+    return [[pb for pb, _where in row] for row in _walk_buttons(raw_msg)]
 
 
 def _rich_message_view(raw_msg: Any) -> dict | None:
@@ -579,7 +666,8 @@ def _rich_message_view(raw_msg: Any) -> dict | None:
     if not blocks:
         return None
     text = _views_text(blocks)
-    buttons = [[_page_button_view(pb) for pb in row] for row in rich_button_rows(raw_msg)]
+    # "in" 标注按钮所在位置(table{k}[r][c] / list[i] / buttonrow / 块类型)
+    buttons = [[{**_page_button_view(pb), "in": where} for pb, where in row] for row in _walk_buttons(raw_msg)]
     return {
         "text": text or None,
         "blocks": blocks,

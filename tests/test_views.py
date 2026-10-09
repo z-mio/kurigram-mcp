@@ -424,9 +424,9 @@ def test_rich_button_row_nested_in_details() -> None:
     v = _rich_message_view(_raw_rich([PageBlockDetails(title=TextPlain(text="t"), blocks=[row])]))
     assert v["buttons"] == [
         [
-            {"text": "OK", "type": "callback", "callback_data": "act:1", "style": "danger"},
-            {"text": "Docs", "type": "url", "url": "https://d"},
-            {"text": "Copy", "type": "copy", "copy_text": "c"},
+            {"text": "OK", "type": "callback", "callback_data": "act:1", "style": "danger", "in": "buttonrow"},
+            {"text": "Docs", "type": "url", "url": "https://d", "in": "buttonrow"},
+            {"text": "Copy", "type": "copy", "copy_text": "c", "in": "buttonrow"},
         ]
     ]
     row_block = v["blocks"][0]["blocks"][0]
@@ -510,3 +510,203 @@ def test_message_view_ephemeral_message_id() -> None:
     assert v["message_id"] == 0 and v["ephemeral_message_id"] == 777
     # 普通消息 -> None
     assert message_view(make_msg())["ephemeral_message_id"] is None
+
+
+def test_rich_table_cell_text_buttons() -> None:
+    """真实案例:/cfg 面板把开关按钮放在表格单元格里(TextButton 是 RichText 成员)。"""
+    from pyrogram.raw.types import (
+        InlineButtonTypeCallback,
+        PageBlockButtonRow,
+        PageBlockTable,
+        PageButton,
+        PageTableCell,
+        PageTableRow,
+        TextBold,
+        TextButton,
+        TextConcat,
+        TextPlain,
+    )
+
+    from kurigram_mcp.telegram.views import _rich_message_view
+
+    rich = _raw_rich(
+        [
+            PageBlockTable(
+                title=TextPlain(text="cfg"),
+                rows=[
+                    PageTableRow(
+                        cells=[
+                            PageTableCell(text=TextPlain(text="隐藏标题")),
+                            PageTableCell(
+                                text=TextConcat(
+                                    texts=[
+                                        TextPlain(text="状态 "),
+                                        TextButton(
+                                            text=TextPlain(text="关"),
+                                            type=InlineButtonTypeCallback(data=b"cfg|x|ht|u||1447514373"),
+                                        ),
+                                    ]
+                                )
+                            ),
+                        ]
+                    ),
+                    PageTableRow(
+                        cells=[
+                            PageTableCell(text=TextPlain(text="标题")),
+                            PageTableCell(
+                                text=TextBold(
+                                    text=TextButton(
+                                        text=TextPlain(text="开"),
+                                        type=InlineButtonTypeCallback(data=b"cfg|y"),
+                                    )
+                                )
+                            ),
+                        ]
+                    ),
+                ],
+            ),
+            PageBlockButtonRow(
+                buttons=[
+                    PageButton(
+                        text=TextPlain(text="完成"),
+                        type=InlineButtonTypeCallback(data=b"done"),
+                    )
+                ]
+            ),
+        ]
+    )
+    v = _rich_message_view(rich)
+    assert v["buttons"] == [
+        [
+            {
+                "text": "关",
+                "type": "callback",
+                "callback_data": "cfg|x|ht|u||1447514373",
+                "in": "table0[0][1]",
+            }
+        ],
+        [{"text": "开", "type": "callback", "callback_data": "cfg|y", "in": "table0[1][1]"}],
+        [{"text": "完成", "type": "callback", "callback_data": "done", "in": "buttonrow"}],
+    ]
+    tbl = v["blocks"][0]
+    assert tbl["type"] == "table"
+    assert "状态 [关]" in tbl["text"] and "[开]" in tbl["text"]
+    assert "[关]" in v["text"] and "[开]" in v["text"]
+
+
+def test_rich_paragraph_inline_buttons() -> None:
+    """<tg-button> 内嵌在段落 RichText 里:一段内多个 TextButton 归同一行。"""
+    from pyrogram.raw.types import (
+        InlineButtonTypeCallback,
+        InlineButtonTypeUrl,
+        PageBlockParagraph,
+        TextButton,
+        TextConcat,
+        TextPlain,
+    )
+
+    from kurigram_mcp.telegram.views import _rich_message_view
+
+    rich = _raw_rich(
+        [
+            PageBlockParagraph(
+                text=TextConcat(
+                    texts=[
+                        TextPlain(text="选择: "),
+                        TextButton(
+                            text=TextPlain(text="A"),
+                            type=InlineButtonTypeCallback(data=b"a"),
+                        ),
+                        TextPlain(text=" "),
+                        TextButton(
+                            text=TextPlain(text="B"),
+                            type=InlineButtonTypeUrl(url="https://b"),
+                        ),
+                    ]
+                )
+            )
+        ]
+    )
+    v = _rich_message_view(rich)
+    assert v["buttons"] == [
+        [
+            {"text": "A", "type": "callback", "callback_data": "a", "in": "paragraph"},
+            {"text": "B", "type": "url", "url": "https://b", "in": "paragraph"},
+        ]
+    ]
+    assert v["blocks"][0]["text"] == "选择: [A] [B]"
+
+
+def test_rich_list_item_text_button() -> None:
+    """列表项(PageListItemText)里的 TextButton 单独成行,位置 list[i]。"""
+    from pyrogram.raw.types import (
+        InlineButtonTypeCallback,
+        PageBlockList,
+        PageListItemText,
+        TextButton,
+        TextConcat,
+        TextPlain,
+    )
+
+    from kurigram_mcp.telegram.views import _rich_message_view
+
+    rich = _raw_rich(
+        [
+            PageBlockList(
+                items=[
+                    PageListItemText(
+                        text=TextConcat(
+                            texts=[
+                                TextPlain(text="项 "),
+                                TextButton(
+                                    text=TextPlain(text="点"),
+                                    type=InlineButtonTypeCallback(data=b"i0"),
+                                ),
+                            ]
+                        )
+                    ),
+                    PageListItemText(text=TextPlain(text="普通项")),
+                ]
+            )
+        ]
+    )
+    v = _rich_message_view(rich)
+    assert v["buttons"] == [[{"text": "点", "type": "callback", "callback_data": "i0", "in": "list[0]"}]]
+    assert v["blocks"][0]["text"] == "• 项 [点]\n• 普通项"
+
+
+def test_rich_table_button_in_globally_unique() -> None:
+    """多个表格时 in 标签带全局表编号(table0/table1),不冲突。"""
+    from pyrogram.raw.types import (
+        InlineButtonTypeCallback,
+        PageBlockTable,
+        PageTableCell,
+        PageTableRow,
+        TextButton,
+        TextPlain,
+    )
+
+    from kurigram_mcp.telegram.views import _rich_message_view
+
+    def table(data: bytes) -> PageBlockTable:
+        return PageBlockTable(
+            title=TextPlain(text="t"),
+            rows=[
+                PageTableRow(
+                    cells=[
+                        PageTableCell(
+                            text=TextButton(
+                                text=TextPlain(text="x"),
+                                type=InlineButtonTypeCallback(data=data),
+                            )
+                        )
+                    ]
+                )
+            ],
+        )
+
+    v = _rich_message_view(_raw_rich([table(b"a"), table(b"b")]))
+    assert v["buttons"] == [
+        [{"text": "x", "type": "callback", "callback_data": "a", "in": "table0[0][0]"}],
+        [{"text": "x", "type": "callback", "callback_data": "b", "in": "table1[0][0]"}],
+    ]

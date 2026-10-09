@@ -124,3 +124,86 @@ async def test_click_inline_data_regression() -> None:
     out = await _client(raw).click_inline_button(1, 42, data="btn_1")
     assert out["type"] == "callback" and out["source"] == "inline"
     assert raw.invoked[0].data == b"btn_1"
+
+
+def _table_rich_msg():
+    """表格单元格里嵌 TextButton 的 /cfg 面板式富消息(无 inline 键盘)。"""
+    from pyrogram.raw.types import (
+        PageBlockTable,
+        PageTableCell,
+        PageTableRow,
+        TextBold,
+        TextButton,
+        TextConcat,
+    )
+
+    table = PageBlockTable(
+        title=TextPlain(text="cfg"),
+        rows=[
+            PageTableRow(
+                cells=[
+                    PageTableCell(text=TextPlain(text="隐藏标题")),
+                    PageTableCell(
+                        text=TextConcat(
+                            texts=[
+                                TextPlain(text="状态 "),
+                                TextButton(
+                                    text=TextPlain(text="关"),
+                                    type=InlineButtonTypeCallback(data=b"cfg|x|ht|u||1447514373"),
+                                ),
+                            ]
+                        )
+                    ),
+                ]
+            ),
+            PageTableRow(
+                cells=[
+                    PageTableCell(text=TextPlain(text="标题")),
+                    PageTableCell(
+                        text=TextBold(
+                            text=TextButton(
+                                text=TextPlain(text="开"),
+                                type=InlineButtonTypeCallback(data=b"cfg|y"),
+                            )
+                        )
+                    ),
+                ]
+            ),
+        ],
+    )
+    btnrow = PageBlockButtonRow(
+        buttons=[PageButton(text=TextPlain(text="完成"), type=InlineButtonTypeCallback(data=b"done"))]
+    )
+    return types.SimpleNamespace(
+        reply_markup=None,
+        raw=types.SimpleNamespace(rich_message=RichMessage(blocks=[table, btnrow], photos=[], documents=[])),
+        edit_date=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_click_table_cell_button_by_data() -> None:
+    """data 命中表格单元格里的 TextButton → GetBotCallbackAnswer。"""
+    raw = FakeRaw(_table_rich_msg())
+    out = await _client(raw).click_inline_button(1, 42, data="cfg|x|ht|u||1447514373")
+    assert out["type"] == "callback" and out["source"] == "rich" and out["text"] == "关"
+    assert len(raw.invoked) == 1
+    q = raw.invoked[0]
+    assert type(q).__name__ == "GetBotCallbackAnswer" and q.data == b"cfg|x|ht|u||1447514373"
+
+
+@pytest.mark.asyncio
+async def test_click_table_cell_button_by_text() -> None:
+    raw = FakeRaw(_table_rich_msg())
+    out = await _client(raw).click_inline_button(1, 42, button_text="开")
+    assert out["type"] == "callback" and out["source"] == "rich"
+    assert raw.invoked[0].data == b"cfg|y"
+
+
+@pytest.mark.asyncio
+async def test_click_row_col_over_table_buttons() -> None:
+    """row/col 寻址:表格行占 row0/row1,底部 ButtonRow 是 row2。"""
+    raw = FakeRaw(_table_rich_msg())
+    out = await _client(raw).click_inline_button(1, 42, row_index=2, col_index=0)
+    assert out["type"] == "callback" and out["text"] == "完成" and out["source"] == "rich"
+    assert raw.invoked[0].data == b"done"
