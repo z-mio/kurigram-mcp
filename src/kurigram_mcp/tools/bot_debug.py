@@ -58,7 +58,8 @@ def build_predicate(
                 is_bot = bool((ev.payload.get("from") or {}).get("is_bot"))
             if is_bot != from_bot:
                 return False
-        text = ev.payload.get("text") or ""
+        # 富消息(guest bot AI 回复)正文在 payload.rich.text,与 text 一并参与匹配
+        text = ev.payload.get("text") or (ev.payload.get("rich") or {}).get("text") or ""
         if text_contains is not None and text_contains not in text:
             return False
         if text_matches is not None:
@@ -100,8 +101,8 @@ def register(mcp: MCPServer[ServerState]) -> None:
         LLM 客户端两次工具调用间隔常达数秒~数十秒,太小的窗口会把快回复滑出去)。
         chat_id 支持数字/@username/me,可从 get_dialogs 或 get_chat 获取。
 
-        谓词:from_bot(是否 bot 发送)、text_contains(文本包含)、
-        text_matches(正则匹配,如 r"\\d+\\.\\d+ CNY" 断言金额格式)、
+        谓词:from_bot(是否 bot 发送)、text_contains(文本包含,同时匹配富消息
+        rich.text)、text_matches(正则匹配,如 r"\\d+\\.\\d+ CNY" 断言金额格式)、
         types(["message","edited_message","reaction","deleted_message"])、
         reply_to_message_id(回复哪条消息)、is_media(是否带媒体)、
         media_type(媒体类型精确匹配,如 photo/voice/document/sticker/video)。
@@ -305,7 +306,11 @@ def register(mcp: MCPServer[ServerState]) -> None:
         attribution = "event_bus"
         if not replies and cmds:
             hist = await client.get_chat_history(chat_id, limit=20)
-            replies = [m for m in hist["messages"] if m.get("from", {}).get("is_bot") and m.get("text") is not None]
+            replies = [
+                m
+                for m in hist["messages"]
+                if m.get("from", {}).get("is_bot") and (m.get("text") is not None or m.get("rich") is not None)
+            ]
             replies = list(reversed(replies))[: len(cmds)]
             attribution = "history_fallback(顺序可能不精确)"
 
@@ -314,9 +319,9 @@ def register(mcp: MCPServer[ServerState]) -> None:
             if i < len(replies):
                 p = replies[i]
                 out[cmd] = {
-                    "text": p.get("text"),
+                    "text": p.get("text") or (p.get("rich") or {}).get("text"),
                     "media": p.get("media"),
-                    "has_buttons": bool(p.get("reply_markup")),
+                    "has_buttons": bool(p.get("reply_markup")) or bool((p.get("rich") or {}).get("buttons")),
                     "links": p.get("links"),
                 }
             else:

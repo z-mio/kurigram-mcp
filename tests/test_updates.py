@@ -169,6 +169,17 @@ def test_predicate_text_matches_regex() -> None:
     assert build_predicate(chat_id=1, text_matches="USD")(events[0]) is True
 
 
+def test_predicate_text_matches_rich_text() -> None:
+    """text_contains/text_matches 也应匹配富消息文本(payload.text=None、rich.text 有内容)。"""
+    bus = EventBus()
+    _ev(bus, "message", 1, payload={"text": None, "rich": {"text": "AI 回复内容"}})
+    _ev(bus, "message", 1, payload={"text": "普通文本"})
+    events = bus.drain(None)[1]
+    assert build_predicate(chat_id=1, text_contains="AI 回复")(events[0]) is True
+    assert build_predicate(chat_id=1, text_matches=r"AI\s*回复")(events[0]) is True
+    assert build_predicate(chat_id=1, text_contains="AI 回复")(events[1]) is False
+
+
 @pytest.mark.asyncio
 async def test_predicate_after_seq_skips_old_events() -> None:
     """after_seq:连续等待时跳过 lookback 窗口内已返回过的旧事件(子会话实测踩坑场景)。

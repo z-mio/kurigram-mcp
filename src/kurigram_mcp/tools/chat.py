@@ -41,6 +41,52 @@ def register(mcp: MCPServer[ServerState]) -> None:
 
     @mcp.tool()
     @wrap_errors
+    async def send_rich_message(
+        ctx: Context[ServerState],
+        chat_id: int | str,
+        content: str,
+        format: str = "markdown",
+        media: list[dict] | None = None,
+        reply_to_message_id: int | None = None,
+        is_rtl: bool = False,
+        skip_entity_detection: bool = False,
+        account: str | None = None,
+    ) -> dict:
+        """发送富消息(Telegram rich message:标题/列表/表格/折叠块/引用/公式/按钮行等),
+        用户账号与 bot 均可发送。format: markdown(默认)| html,
+        语法见 https://core.telegram.org/bots/api#rich-message-formatting-options
+
+        markdown 速查:`# 标题`、`- [x] 任务`、`| 表 | 格 |`、`$$E=mc^2$$`、
+        `<details><summary>标题</summary>内容</details>`;
+        html 额外支持 `<tg-button-row><tg-button type="callback_data" data="x">按钮</tg-button></tg-button-row>`、
+        `<aside>`、`<tg-map lat="" long="" zoom=""/>`。
+
+        media:内容里用 tg://photo?id=<id> 等链接引用的媒体,每项
+        {"id", "media"(本地路径/file_id/URL), "type"(可选 photo/video/audio/document/animation/voice,
+        缺省按扩展名推断)};http(s) URL 图片直接用 ![](url),无需 media。
+
+        返回的 rich 字段即服务器解析后的结构;若 rich 为 null(服务器只回了简短确认),
+        用 get_messages 读回验证渲染结果。
+        限制:32768 字符、500 块、16 层嵌套、50 个媒体。
+        实测:非 Premium 用户账号发送返回 RICH_MESSAGE_UNSUPPORTED;用户账号不能带
+        callback_data 按钮(BUTTON_TYPE_INVALID),url/copy_text 按钮可用。"""
+        state = ctx.request_context.lifespan_context
+        client = state.resolve(account)
+        access = access_for(state, account)
+        chat_id = await resolve_chat_id(client, chat_id)
+        require_chat(access, chat_id)
+        return await client.send_rich_message(
+            chat_id,
+            content,
+            format=format,
+            media=media,
+            reply_to_message_id=reply_to_message_id,
+            is_rtl=is_rtl,
+            skip_entity_detection=skip_entity_detection,
+        )
+
+    @mcp.tool()
+    @wrap_errors
     async def send_photo(
         ctx: Context[ServerState],
         chat_id: int | str,
@@ -317,8 +363,11 @@ def register(mcp: MCPServer[ServerState]) -> None:
 
         注意:本工具模拟点击消息上的按钮;向 bot 的 inline mode 发起查询
         请用 send_inline_query。
-        定位优先级:data(callback_data 原文,可从 get_messages 的 reply_markup 里拿到)
-        > button_text(按钮文本)> row_index/col_index。
+        也可点击富消息按钮(get_messages 返回的 rich.buttons,guest bot AI 回复等)。
+        定位优先级:data(callback_data 原文,可从 get_messages 的 reply_markup /
+        rich.buttons 里拿到)> button_text(按钮文本)> row_index/col_index;
+        data/text 先搜 inline 键盘再搜 rich 按钮,row/col 在 inline 键盘存在时
+        按其寻址,否则按 rich.buttons。
         url 按钮返回目标 URL;点击后 bot 的行为(编辑消息/新消息)
         可用 wait_for_update 或 get_chat_history 观察。
         """

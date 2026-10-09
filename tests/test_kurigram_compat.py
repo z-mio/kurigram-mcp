@@ -14,6 +14,7 @@ import pytest
 from pyrogram import Client
 from pyrogram.connection import HTTPProxy, SOCKS4Proxy, SOCKS5Proxy
 
+from kurigram_mcp.errors import McpError
 from kurigram_mcp.telegram.client import TelegramClient, _reply, parse_proxy
 
 
@@ -54,6 +55,9 @@ class RecordingRaw:
 
     async def send_message(self, chat_id, text, **kw):
         return self._record("send_message", **kw)
+
+    async def send_rich_message(self, chat_id, **kw):
+        return self._record("send_rich_message", **kw)
 
     async def send_photo(self, chat_id, media, **kw):
         return self._record("send_photo", **kw)
@@ -229,3 +233,106 @@ class _RecordingBus:
 
     def set_allowed_ids(self, ids) -> None:  # pragma: no cover - 协议占位
         pass
+
+
+# ---------- 4. send_rich_message ----------
+
+
+@pytest.mark.asyncio
+async def test_send_rich_message_markdown_default() -> None:
+    """默认 format=markdown;回复参数走 ReplyParameters,不传弃用的平铺参数。"""
+    from pyrogram.types import InputRichMessage, ReplyParameters
+
+    raw = RecordingRaw()
+    tc = _client(raw)
+
+    await tc.send_rich_message(1, "# hi", reply_to_message_id=5)
+    (_, kw) = raw.calls[0]
+    rich = kw["rich_message"]
+    assert isinstance(rich, InputRichMessage)
+    assert rich.markdown == "# hi" and rich.html is None and rich.blocks is None
+    assert rich.media is None
+    assert rich.is_rtl is None and rich.skip_entity_detection is None
+    params = kw["reply_parameters"]
+    assert isinstance(params, ReplyParameters) and params.message_id == 5
+    assert "reply_to_message_id" not in kw
+
+    raw2 = RecordingRaw()
+    await _client(raw2).send_rich_message(1, "x")
+    assert raw2.calls[0][1]["reply_parameters"] is None
+
+
+@pytest.mark.asyncio
+async def test_send_rich_message_html() -> None:
+    """format 大小写不敏感;html 与 markdown 互斥。"""
+    raw = RecordingRaw()
+    await _client(raw).send_rich_message(1, "<b>x</b>", format="HTML")
+    rich = raw.calls[0][1]["rich_message"]
+    assert rich.html == "<b>x</b>" and rich.markdown is None
+
+
+@pytest.mark.asyncio
+async def test_send_rich_message_media_inference() -> None:
+    """media 按扩展名推断类型;显式 type 覆盖;id 原样透传。"""
+    from pyrogram.types import (
+        InputMediaAnimation,
+        InputMediaAudio,
+        InputMediaDocument,
+        InputMediaPhoto,
+        InputMediaVideo,
+        InputMediaVoiceNote,
+    )
+
+    raw = RecordingRaw()
+    await _client(raw).send_rich_message(
+        1,
+        "x",
+        media=[
+            {"id": "p1", "media": "a.jpg"},
+            {"id": "v_1", "media": "https://x/y.mp4"},
+            {"id": "d", "media": "f.zip"},
+            {"id": "vo", "media": "n.ogg"},
+            {"id": "g", "media": "x.gif"},
+            {"id": "e", "media": "x.bin", "type": "audio"},
+        ],
+    )
+    rich = raw.calls[0][1]["rich_message"]
+    assert [m.id for m in rich.media] == ["p1", "v_1", "d", "vo", "g", "e"]
+    assert [type(m.media) for m in rich.media] == [
+        InputMediaPhoto,
+        InputMediaVideo,
+        InputMediaDocument,
+        InputMediaVoiceNote,
+        InputMediaAnimation,
+        InputMediaAudio,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_send_rich_message_errors() -> None:
+    """参数校验:format/空内容/非法 id/未知 type/缺 media/底层返回 None。"""
+    tc = _client(RecordingRaw())
+    with pytest.raises(McpError, match="format"):
+        await tc.send_rich_message(1, "x", format="rst")
+    with pytest.raises(McpError, match="content"):
+        await tc.send_rich_message(1, "  ")
+    with pytest.raises(McpError, match="id"):
+        await tc.send_rich_message(1, "x", media=[{"id": "bad id!", "media": "a.jpg"}])
+    with pytest.raises(McpError, match="sticker"):
+        await tc.send_rich_message(1, "x", media=[{"id": "s", "media": "a.jpg", "type": "sticker"}])
+    with pytest.raises(McpError, match="media"):
+        await tc.send_rich_message(1, "x", media=[{"id": "x"}])
+    # UpdateShortSentMessage 等场景底层可能返回 None(裸 Message 无 .raw)
+    raw = RecordingRaw()
+    raw._message = None
+    with pytest.raises(McpError, match="未返回消息"):
+        await _client(raw).send_rich_message(1, "x")
+
+
+@pytest.mark.asyncio
+async def test_send_rich_message_flags() -> None:
+    """is_rtl / skip_entity_detection 传 True 才透传(否则 None,不下发 False)。"""
+    raw = RecordingRaw()
+    await _client(raw).send_rich_message(1, "x", is_rtl=True, skip_entity_detection=True)
+    rich = raw.calls[0][1]["rich_message"]
+    assert rich.is_rtl is True and rich.skip_entity_detection is True

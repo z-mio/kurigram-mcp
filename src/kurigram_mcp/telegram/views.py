@@ -105,8 +105,27 @@ def _button_view(btn: Any) -> dict:
         out["user_id"] = btn.user_id
     if getattr(btn, "switch_inline_query", None) is not None:
         out["switch_inline_query"] = btn.switch_inline_query
+    if getattr(btn, "switch_inline_query_current_chat", None) is not None:
+        out["switch_inline_query_current_chat"] = btn.switch_inline_query_current_chat
+    login_url = getattr(btn, "login_url", None)
+    if login_url is not None:
+        out["login_url"] = getattr(login_url, "url", None)
+    copy_text = getattr(btn, "copy_text", None)
+    if copy_text is not None:
+        out["copy_text"] = getattr(copy_text, "text", None)
+    if getattr(btn, "requires_password", None):
+        out["requires_password"] = True
+    if getattr(btn, "callback_game", None) is not None:
+        out["game"] = True
+    if getattr(btn, "disabled", None) is not None:
+        out["disabled"] = True
     if getattr(btn, "pay", False):
         out["pay"] = True
+    style = getattr(btn, "style", None)
+    # ButtonStyle 枚举取 name;SimpleNamespace/字符串替身 getattr 兜底
+    style_name = getattr(style, "name", style if isinstance(style, str) else None)
+    if style_name is not None and str(style_name).lower() != "default":
+        out["style"] = str(style_name).lower()
     return out
 
 
@@ -223,12 +242,331 @@ def _rich_text(node: Any) -> str:
     if name == "TextImage":
         return "[图片]"
     if name == "TextCustomEmoji":
-        return "[emoji]"
+        # 自定义表情:alt 是兜底字符(通常就是 emoji 本体)
+        return getattr(node, "alt", None) or "[emoji]"
+    if name == "TextMath":
+        return getattr(node, "source", None) or ""
     return ""
 
 
+def _caption(c: Any) -> str:
+    """caption -> 纯文本。PageCaption(text+credit) 附注来源;裸 RichText 直接渲染。"""
+    if c is None:
+        return ""
+    if hasattr(c, "credit"):
+        text = _rich_text(getattr(c, "text", None))
+        credit = _rich_text(getattr(c, "credit", None))
+        return f"{text} — {credit}" if credit else text
+    return _rich_text(c)
+
+
+def _views_of(blocks: Any, rich: Any) -> list[dict]:
+    """渲染一组 PageBlock,丢弃完全提取不出内容的项。"""
+    return [v for v in (_block_view(x, rich) for x in blocks or []) if v is not None]
+
+
+def _views_text(views: list[dict]) -> str:
+    """已渲染 block 的 text 拼接(跳过空串)。"""
+    return "\n".join(v["text"] for v in views if v.get("text"))
+
+
+def _list_block_view(b: Any, ordered: bool, rich: Any) -> dict:
+    """PageBlockList / PageBlockOrderedList -> dict。
+
+    条目分两种:PageListItem*Text(纯文本)与 PageListItem*Blocks(嵌套 block,
+    guest bot 列表实际走这种,只读 .text 会得到空串——曾经的丢内容点)。
+    """
+    items = []
+    lines = []
+    for i, it in enumerate(getattr(b, "items", None) or []):
+        checkbox = bool(getattr(it, "checkbox", False))
+        checked = bool(getattr(it, "checked", False))
+        if ordered:
+            num = getattr(it, "num", None)
+            value = getattr(it, "value", None)
+            label = num or (f"{value}." if value else f"{i + 1}.")
+        else:
+            label = "•"
+        item: dict = {"label": label}
+        inner = getattr(it, "blocks", None)
+        if inner is not None:
+            views = _views_of(inner, rich)
+            item["blocks"] = views
+            text = _views_text(views)
+        else:
+            text = _rich_text(getattr(it, "text", None))
+        item["text"] = text
+        if checkbox:
+            item["checked"] = checked
+        items.append(item)
+        if text:
+            marker = "[x] " if checked else "[ ] " if checkbox else ""
+            lines.append(f"{label} {marker}{text}")
+    return {"type": "orderedlist" if ordered else "list", "items": items, "text": "\n".join(lines)}
+
+
+def _block_view(b: Any, rich: Any) -> dict | None:
+    """单个 PageBlock -> dict(递归容器);b 为 None 时返回 None。
+
+    按 raw 类名分发:文本块 / 容器块 / 媒体块 / 按钮行……
+    未知类型走兜底(有 text 渲染 text,有 blocks/items 递归),不静默丢弃;
+    什么都提取不出来才标 unsupported。
+    """
+    if b is None:
+        return None
+    name = type(b).__name__
+    btype = name.removeprefix("PageBlock").lower() if name.startswith("PageBlock") else "block"
+
+    if name == "PageBlockDivider":
+        return {"type": "divider", "text": "---"}
+    if name == "PageBlockMath":
+        return {"type": "math", "text": getattr(b, "source", None) or ""}
+    if name == "PageBlockAnchor":
+        return {"type": "anchor", "name": getattr(b, "name", None), "text": ""}
+    if name == "PageBlockPreformatted":
+        return {
+            "type": "preformatted",
+            "text": _rich_text(getattr(b, "text", None)),
+            "language": getattr(b, "language", None),
+        }
+    if name == "PageBlockDetails":
+        title = _rich_text(getattr(b, "title", None))
+        views = _views_of(getattr(b, "blocks", None), rich)
+        return {
+            "type": "details",
+            "title": title,
+            "open": bool(getattr(b, "open", False)),
+            "blocks": views,
+            "text": "\n".join(x for x in (title, _views_text(views)) if x),
+        }
+    if name in ("PageBlockBlockquote", "PageBlockPullquote"):
+        out: dict = {
+            "type": btype,
+            "text": _rich_text(getattr(b, "text", None)),
+            "credit": _rich_text(getattr(b, "caption", None)) or None,
+        }
+        if name == "PageBlockBlockquote":
+            out["collapsed"] = bool(getattr(b, "collapsed", False))
+        return out
+    if name == "PageBlockBlockquoteBlocks":
+        views = _views_of(getattr(b, "blocks", None), rich)
+        return {
+            "type": "blockquoteblocks",
+            "blocks": views,
+            "credit": _rich_text(getattr(b, "caption", None)) or None,
+            "text": _views_text(views),
+        }
+    if name in ("PageBlockList", "PageBlockOrderedList"):
+        return _list_block_view(b, name == "PageBlockOrderedList", rich)
+    if name == "PageBlockPhoto":
+        cap = _caption(getattr(b, "caption", None))
+        photo_id = getattr(b, "photo_id", None)
+        out = {
+            "type": "photo",
+            # 64 位 id 转字符串,避免 JS 端 JSON 丢精度
+            "photo_id": str(photo_id) if photo_id is not None else None,
+            "spoiler": bool(getattr(b, "spoiler", False)),
+            "caption": cap or None,
+            "text": "[图片]" + (f" {cap}" if cap else ""),
+        }
+        if getattr(b, "url", None):
+            out["url"] = b.url
+        return out
+    if name in ("PageBlockVideo", "PageBlockAudio", "PageBlockDocument"):
+        field, label = {
+            "PageBlockVideo": ("video_id", "[视频]"),
+            "PageBlockAudio": ("audio_id", "[音频]"),
+            "PageBlockDocument": ("document_id", "[文件]"),
+        }[name]
+        doc_id = getattr(b, field, None)
+        out = {"type": btype, "document_id": str(doc_id) if doc_id is not None else None}
+        file_name = None
+        # rich.documents 里按 id 找回 mime/file_name(block 只带引用)
+        doc = next((d for d in getattr(rich, "documents", None) or [] if getattr(d, "id", None) == doc_id), None)
+        if doc is not None:
+            out["mime_type"] = getattr(doc, "mime_type", None)
+            file_name = next(
+                (
+                    a.file_name
+                    for a in getattr(doc, "attributes", None) or []
+                    if type(a).__name__ == "DocumentAttributeFilename"
+                ),
+                None,
+            )
+            if file_name:
+                out["file_name"] = file_name
+        cap = _caption(getattr(b, "caption", None))
+        out["caption"] = cap or None
+        out["text"] = " ".join(x for x in (label, file_name, cap) if x)
+        return out
+    if name in ("PageBlockCollage", "PageBlockSlideshow"):
+        views = _views_of(getattr(b, "items", None), rich)
+        cap = _caption(getattr(b, "caption", None))
+        return {
+            "type": btype,
+            "blocks": views,
+            "caption": cap or None,
+            "text": "\n".join(x for x in (_views_text(views), cap) if x),
+        }
+    if name == "PageBlockTable":
+        title = _rich_text(getattr(b, "title", None))
+        rows = [
+            [_rich_text(getattr(c, "text", None)) for c in getattr(row, "cells", None) or []]
+            for row in getattr(b, "rows", None) or []
+        ]
+        lines = ([title] if title else []) + [" | ".join(r) for r in rows]
+        return {"type": "table", "title": title or None, "rows": rows, "text": "\n".join(lines)}
+    if name == "PageBlockMap":
+        geo = getattr(b, "geo", None)
+        is_point = type(geo).__name__ == "GeoPoint"
+        lat = getattr(geo, "lat", None) if is_point else None
+        long = getattr(geo, "long", None) if is_point else None
+        return {
+            "type": "map",
+            "lat": lat,
+            "long": long,
+            "zoom": getattr(b, "zoom", None),
+            "caption": _caption(getattr(b, "caption", None)) or None,
+            "text": f"[地图 {lat},{long}]" if is_point else "[地图]",
+        }
+    if name == "PageBlockEmbed":
+        url = getattr(b, "url", None)
+        return {
+            "type": "embed",
+            "url": url,
+            "caption": _caption(getattr(b, "caption", None)) or None,
+            "text": f"[嵌入] {url}" if url else "[嵌入]",
+        }
+    if name == "PageBlockEmbedPost":
+        views = _views_of(getattr(b, "blocks", None), rich)
+        author = getattr(b, "author", None)
+        return {
+            "type": "embedpost",
+            "url": getattr(b, "url", None),
+            "author": author,
+            "blocks": views,
+            "text": "\n".join(x for x in (author, _views_text(views)) if x),
+        }
+    if name == "PageBlockCover":
+        views = _views_of([getattr(b, "cover", None)], rich)
+        return {"type": "cover", "blocks": views, "text": _views_text(views)}
+    if name == "PageBlockAuthorDate":
+        return {
+            "type": "authordate",
+            "author": _rich_text(getattr(b, "author", None)) or None,
+            "published_date": getattr(b, "published_date", None),
+            "text": _rich_text(getattr(b, "author", None)),
+        }
+    if name == "PageBlockRelatedArticles":
+        title = _rich_text(getattr(b, "title", None))
+        articles = [
+            {"title": getattr(a, "title", None), "url": getattr(a, "url", None)}
+            for a in getattr(b, "articles", None) or []
+        ]
+        lines = [" ".join(x for x in (a["title"], a["url"]) if x) for a in articles]
+        return {
+            "type": "relatedarticles",
+            "title": title or None,
+            "articles": articles,
+            "text": "\n".join(x for x in [title, *lines] if x),
+        }
+    if name == "PageBlockChannel":
+        return {"type": "channel", "text": ""}
+    if name == "PageBlockButtonRow":
+        buttons = [_page_button_view(pb) for pb in getattr(b, "buttons", None) or []]
+        align = None
+        for flag, val in (("align_left", "left"), ("align_center", "center"), ("align_right", "right")):
+            if getattr(b, flag, None):
+                align = val
+                break
+        return {
+            "type": "buttonrow",
+            "buttons": buttons,
+            "align": align,
+            "text": " ".join(f"[{x['text']}]" for x in buttons),
+        }
+
+    # 兜底:RichText text / 嵌套 blocks / items,能提什么提什么
+    text_node = getattr(b, "text", None)
+    if text_node is not None:
+        out = {"type": btype, "text": _rich_text(text_node)}
+    else:
+        views = _views_of(getattr(b, "blocks", None) or getattr(b, "items", None), rich)
+        if views:
+            out = {"type": btype, "blocks": views, "text": _views_text(views)}
+        else:
+            out = {"type": btype, "text": "", "unsupported": True}
+    cap = _caption(getattr(b, "caption", None))
+    if cap:
+        out["caption"] = cap
+    return out
+
+
+def _page_button_view(pb: Any) -> dict:
+    """raw PageButton -> 扁平 dict(富消息按钮)。"""
+    out: dict = {"text": _rich_text(getattr(pb, "text", None))}
+    bt = getattr(pb, "type", None)
+    kind = type(bt).__name__.removeprefix("InlineButtonType").lower() if bt is not None else "unknown"
+    out["type"] = kind
+    if kind == "callback":
+        data = getattr(bt, "data", None)
+        out["callback_data"] = data.decode("utf-8", errors="replace") if isinstance(data, bytes) else str(data or "")
+        if getattr(bt, "requires_password", None):
+            out["requires_password"] = True
+    elif kind in ("url", "urlauth", "webview"):
+        out["url"] = getattr(bt, "url", None)
+    elif kind == "copy":
+        out["copy_text"] = getattr(bt, "copy_text", None)
+    elif kind == "userprofile":
+        out["user_id"] = getattr(bt, "user_id", None)
+    elif kind == "switchinline":
+        out["switch_inline_query"] = getattr(bt, "query", None)
+        out["same_peer"] = bool(getattr(bt, "same_peer", False))
+    style = getattr(pb, "style", None)
+    if style is not None:
+        # RichButtonStyle:bg_* 是 flags 位,取第一个为真的
+        for key, label in (
+            ("bg_primary", "primary"),
+            ("bg_danger", "danger"),
+            ("bg_success", "success"),
+            ("link", "link"),
+        ):
+            if getattr(style, key, None):
+                out["style"] = label
+                break
+    return out
+
+
+def rich_button_rows(raw_msg: Any) -> list[list[Any]]:
+    """raw Message -> 富消息按钮行(raw PageButton,文档顺序)。
+
+    与 _block_view 同一套 DFS 遍历:PageBlockButtonRow 可嵌在 details /
+    blockquoteblocks / 列表项 / collage / embedpost / cover 等容器里。
+    """
+    rich = getattr(raw_msg, "rich_message", None)
+    if rich is None:
+        return []
+    rows: list[list[Any]] = []
+
+    def walk(blocks: Any) -> None:
+        for b in blocks or []:
+            if type(b).__name__ == "PageBlockButtonRow":
+                rows.append(list(getattr(b, "buttons", None) or []))
+                continue
+            if type(b).__name__ == "PageBlockCover":
+                walk([getattr(b, "cover", None)])
+                continue
+            for attr in ("blocks", "items"):
+                children = getattr(b, attr, None)
+                if isinstance(children, list):
+                    walk(children)
+
+    walk(getattr(rich, "blocks", None))
+    return rows
+
+
 def _rich_message_view(raw_msg: Any) -> dict | None:
-    """raw Message.rich_message -> 简化结构 {text, blocks}。
+    """raw Message.rich_message -> 简化结构 {text, blocks, buttons, partial}。
 
     guest bot(AI 回复,如 @mira)的内容以富消息下发:普通 text 为空,
     实际内容在 rich_message.blocks(PageBlockParagraph 等)里。
@@ -237,21 +575,17 @@ def _rich_message_view(raw_msg: Any) -> dict | None:
     rich = getattr(raw_msg, "rich_message", None)
     if rich is None:
         return None
-    blocks = []
-    for b in getattr(rich, "blocks", None) or []:
-        btext = getattr(b, "text", None)
-        name = type(b).__name__
-        btype = name.removeprefix("PageBlock").lower() if name.startswith("PageBlock") else "block"
-        if btext is not None:
-            blocks.append({"type": btype, "text": _rich_text(btext)})
-        elif name == "PageBlockDivider":
-            blocks.append({"type": "divider", "text": "---"})
-        elif name == "PageBlockList":
-            items = [_rich_text(getattr(it, "text", None)) for it in (getattr(b, "items", None) or [])]
-            blocks.append({"type": "list", "text": "\n".join(x for x in items if x)})
-        # 其他 PageBlock 类型(网页文档用)不展开
-    text = "\n".join(b["text"] for b in blocks if b.get("text"))
-    return {"text": text or None, "blocks": blocks} if blocks else None
+    blocks = _views_of(getattr(rich, "blocks", None), rich)
+    if not blocks:
+        return None
+    text = _views_text(blocks)
+    buttons = [[_page_button_view(pb) for pb in row] for row in rich_button_rows(raw_msg)]
+    return {
+        "text": text or None,
+        "blocks": blocks,
+        "buttons": buttons or None,
+        "partial": bool(getattr(rich, "part", False)),
+    }
 
 
 def _entity_type_label(e: Any) -> str | None:
@@ -324,6 +658,8 @@ def message_view(msg: Any) -> dict:
     raw_msg = getattr(msg, "raw", None)
     return {
         "message_id": msg.id,
+        # 临时消息(ephemeral)id=0,真实 id 在 ephemeral_message_id
+        "ephemeral_message_id": getattr(msg, "ephemeral_message_id", None),
         "chat_id": msg.chat.id if getattr(msg, "chat", None) else None,
         "date": _iso(getattr(msg, "date", None)),
         "edit_date": _iso(getattr(msg, "edit_date", None)),

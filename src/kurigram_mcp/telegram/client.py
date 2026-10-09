@@ -300,6 +300,100 @@ class TelegramClient:
         )
         return message_view(msg)
 
+    async def send_rich_message(
+        self,
+        chat_id: int,
+        content: str,
+        format: str = "markdown",
+        media: list | None = None,
+        reply_to_message_id: int | None = None,
+        is_rtl: bool = False,
+        skip_entity_detection: bool = False,
+    ) -> dict:
+        """发送富消息(rich message:标题/列表/表格/折叠块/按钮行等)。format: markdown | html。
+
+        media 为 [{"id", "media"(本地路径/file_id/URL), "type"}] 列表,content 里以
+        tg://photo?id=<id> 等链接引用;type 缺省按扩展名推断,可显式给
+        photo/video/audio/document/animation/voice。
+        """
+        from pyrogram.types import (
+            InputMediaAnimation,
+            InputMediaAudio,
+            InputMediaDocument,
+            InputMediaPhoto,
+            InputMediaVideo,
+            InputMediaVoiceNote,
+            InputRichMessage,
+            InputRichMessageMedia,
+        )
+
+        _MEDIA_CLS = {
+            "photo": InputMediaPhoto,
+            "video": InputMediaVideo,
+            "audio": InputMediaAudio,
+            "document": InputMediaDocument,
+            "animation": InputMediaAnimation,
+            "voice": InputMediaVoiceNote,
+        }
+        # 扩展名 -> 类型(顺序无关,后缀互不重叠)
+        _EXT_TYPE = [
+            ((".jpg", ".jpeg", ".png", ".webp", ".bmp"), "photo"),
+            ((".gif",), "animation"),
+            ((".mp4", ".mov", ".mkv", ".webm"), "video"),
+            ((".mp3", ".m4a", ".flac", ".wav"), "audio"),
+            ((".ogg", ".oga", ".opus"), "voice"),
+        ]
+
+        if not content or not content.strip():
+            raise McpError(INTERNAL, "content 不能为空")
+        fmt = format.lower()
+        if fmt not in ("markdown", "html"):
+            raise McpError(INTERNAL, f"不支持的 format: {format}(支持: markdown/html)")
+
+        def _media_type(src: Any, declared: Any) -> str:
+            if declared is not None:
+                if declared not in _MEDIA_CLS:
+                    raise McpError(
+                        INTERNAL,
+                        f"不支持的媒体类型: {declared}(支持: {', '.join(_MEDIA_CLS)})",
+                    )
+                return str(declared)
+            low = str(src).lower()
+            for exts, t in _EXT_TYPE:
+                if low.endswith(exts):
+                    return t
+            return "document"
+
+        media_items = []
+        for item in media or []:
+            if not isinstance(item, dict):
+                raise McpError(INTERNAL, f"media 条目需为 dict: {type(item).__name__}")
+            media_id = item.get("id")
+            if not isinstance(media_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", media_id):
+                raise McpError(INTERNAL, f"media id 不合法: {media_id!r}(1-64 位,仅字母/数字/_/-)")
+            src = item.get("media")
+            if not src:
+                raise McpError(INTERNAL, "media 条目需包含 media(路径/file_id/URL)")
+            media_items.append(
+                InputRichMessageMedia(id=media_id, media=_MEDIA_CLS[_media_type(src, item.get("type"))](src))
+            )
+
+        rich = InputRichMessage(
+            markdown=content if fmt == "markdown" else None,
+            html=content if fmt == "html" else None,
+            media=media_items or None,
+            is_rtl=True if is_rtl else None,
+            skip_entity_detection=True if skip_entity_detection else None,
+        )
+        msg = await self.raw.send_rich_message(
+            chat_id,
+            rich_message=rich,
+            reply_parameters=_reply(reply_to_message_id),
+        )
+        if msg is None:
+            raise McpError(INTERNAL, "send_rich_message 未返回消息")
+        return message_view(msg)
+
     async def send_photo(
         self,
         chat_id: int,
@@ -371,59 +465,30 @@ class TelegramClient:
         """模拟用户点击 inline 按钮(触发 callback_query)。
 
         定位优先级:data(callback_data 原文)> button_text(文本匹配)> row/col 下标。
+        也支持富消息按钮(get_messages 返回的 rich.buttons):data/text 先搜
+        inline 键盘再搜 rich 按钮;row/col 在 inline 键盘存在时按其寻址,否则按 rich.buttons。
         url 按钮返回目标 URL;callback 按钮触发点击;其他类型按钮返回类型说明。
         """
         from pyrogram.raw.functions.messages import GetBotCallbackAnswer
         from pyrogram.types import InlineKeyboardMarkup
 
+        from .views import _rich_text, rich_button_rows
+
         msg = await self.raw.get_messages(chat_id, message_id)
-        if msg is None or not getattr(msg, "reply_markup", None):
+        markup = getattr(msg, "reply_markup", None) if msg is not None else None
+        inline_rows = markup.inline_keyboard if isinstance(markup, InlineKeyboardMarkup) else []
+        rich_rows = rich_button_rows(getattr(msg, "raw", None))
+        if not inline_rows and not rich_rows:
+            if markup is not None and not isinstance(markup, InlineKeyboardMarkup):
+                raise McpError(
+                    "NO_BUTTONS",
+                    f"消息 {message_id} 的按钮类型: {type(markup).__name__};可点击类型为 InlineKeyboardMarkup",
+                )
             raise McpError("NO_BUTTONS", f"消息 {message_id} 没有按钮")
-        markup = msg.reply_markup
-        if not isinstance(markup, InlineKeyboardMarkup):
-            raise McpError(
-                "NO_BUTTONS",
-                f"消息 {message_id} 的按钮类型: {type(markup).__name__};可点击类型为 InlineKeyboardMarkup",
-            )
 
-        # 定位按钮
-        target = None
-        if data is not None:
-            for row in markup.inline_keyboard:
-                for b in row:
-                    cb = b.callback_data
-                    cb_s = cb.decode("utf-8", errors="replace") if isinstance(cb, bytes) else str(cb or "")
-                    if cb_s == data:
-                        target = b
-                        break
-                if target:
-                    break
-        elif button_text:
-            for row in markup.inline_keyboard:
-                for b in row:
-                    if b.text == button_text:
-                        target = b
-                        break
-                if target:
-                    break
-        else:
-            try:
-                target = markup.inline_keyboard[row_index][col_index]
-            except IndexError as exc:
-                raise McpError("BUTTON_NOT_FOUND", f"按钮下标越界: row={row_index} col={col_index}") from exc
-
-        if target is None:
-            raise McpError(
-                "BUTTON_NOT_FOUND",
-                f"消息 {message_id} 上没有匹配的按钮(data={data!r} text={button_text!r})",
-            )
-
-        # url 按钮:直接返回目标 URL
-        if getattr(target, "url", None):
-            return {"type": "url", "text": target.text, "url": target.url}
-
-        # 无 callback_data 的按钮(web_app/登录/支付等):返回类型说明
-        if getattr(target, "callback_data", None) is None:
+        # 统一成内部记录:source/text/data(bytes)/url/requires_password/copy_text/kinds
+        def norm_inline(b: Any) -> dict:
+            cb = getattr(b, "callback_data", None)
             kinds = [
                 k
                 for k in (
@@ -434,12 +499,122 @@ class TelegramClient:
                     "pay",
                     "user_id",
                 )
-                if getattr(target, k, None) is not None
+                if getattr(b, k, None) is not None
             ]
-            return {"type": "unsupported", "text": target.text, "button_type": kinds or "unknown"}
+            if getattr(b, "callback_game", None) is not None:
+                kinds.append("game")
+            if getattr(b, "disabled", None) is not None:
+                kinds.append("disabled")
+            copy_text = getattr(b, "copy_text", None)
+            return {
+                "source": "inline",
+                "text": b.text,
+                "data": cb.encode() if isinstance(cb, str) else cb,
+                "url": getattr(b, "url", None),
+                "requires_password": bool(getattr(b, "requires_password", False)),
+                "copy_text": getattr(copy_text, "text", None) if copy_text is not None else None,
+                "kinds": kinds,
+            }
+
+        def norm_rich(pb: Any) -> dict:
+            bt = getattr(pb, "type", None)
+            kind = type(bt).__name__.removeprefix("InlineButtonType").lower() if bt is not None else "unknown"
+            rec: dict = {
+                "source": "rich",
+                "text": _rich_text(getattr(pb, "text", None)),
+                "data": None,
+                "url": None,
+                "requires_password": False,
+                "copy_text": None,
+                "kinds": [],
+            }
+            if kind == "callback":
+                rec["data"] = getattr(bt, "data", None)
+                rec["requires_password"] = bool(getattr(bt, "requires_password", False))
+            elif kind == "url":
+                rec["url"] = getattr(bt, "url", None)
+            elif kind == "copy":
+                rec["copy_text"] = getattr(bt, "copy_text", None)
+            else:
+                # urlauth/webview 等:有 url 但与 inline url 不等价,归入不支持类型
+                rec["kinds"] = [kind]
+            return rec
+
+        inline_btns = [[norm_inline(b) for b in row] for row in inline_rows]
+        rich_btns = [[norm_rich(pb) for pb in row] for row in rich_rows]
+
+        # 定位按钮
+        target = None
+        if data is not None:
+            for rows in (inline_btns, rich_btns):
+                for row in rows:
+                    for rec in row:
+                        cb = rec["data"]
+                        if cb is None:
+                            continue
+                        cb_s = cb.decode("utf-8", errors="replace") if isinstance(cb, bytes) else str(cb)
+                        if cb_s == data:
+                            target = rec
+                            break
+                    if target:
+                        break
+                if target:
+                    break
+        elif button_text:
+            for rows in (inline_btns, rich_btns):
+                for row in rows:
+                    for rec in row:
+                        if rec["text"] == button_text:
+                            target = rec
+                            break
+                    if target:
+                        break
+                if target:
+                    break
+        else:
+            rows = inline_btns if inline_btns else rich_btns
+            try:
+                target = rows[row_index][col_index]
+            except IndexError as exc:
+                raise McpError("BUTTON_NOT_FOUND", f"按钮下标越界: row={row_index} col={col_index}") from exc
+
+        if target is None:
+            raise McpError(
+                "BUTTON_NOT_FOUND",
+                f"消息 {message_id} 上没有匹配的按钮(data={data!r} text={button_text!r})",
+            )
+
+        source = target["source"]
+
+        # 需要 2FA 密码确认的按钮:本工具不支持,不触发点击
+        if target["requires_password"]:
+            return {
+                "type": "unsupported",
+                "text": target["text"],
+                "button_type": ["requires_password"],
+                "note": "该按钮需要 2FA 密码确认,本工具不支持",
+                "source": source,
+            }
+
+        # url 按钮:直接返回目标 URL
+        if target["url"]:
+            return {"type": "url", "text": target["text"], "url": target["url"], "source": source}
+
+        # copy_text 按钮:返回待复制文本
+        if target["copy_text"] is not None:
+            return {"type": "copy_text", "text": target["text"], "copy_text": target["copy_text"], "source": source}
+
+        # 无 callback_data 的按钮(web_app/登录/支付等):返回类型说明
+        if target["data"] is None:
+            return {
+                "type": "unsupported",
+                "text": target["text"],
+                "button_type": target["kinds"] or "unknown",
+                "source": source,
+            }
 
         # callback 按钮:触发点击
-        cb = target.callback_data
+        cb = target["data"]
         if isinstance(cb, str):
             cb = cb.encode()
         peer = await self.raw.resolve_peer(chat_id)
@@ -457,14 +632,16 @@ class TelegramClient:
                 if fresh is not None and new_edit is not None and new_edit != old_edit:
                     return {
                         "type": "already_processed",
-                        "text": target.text,
+                        "text": target["text"],
                         "note": "点击已生效:消息已被 bot 更新(按钮 data 失效属正常),请重新获取消息查看新状态",
                         "message_edit_date": new_edit.isoformat() if new_edit else None,
+                        "source": source,
                     }
             raise to_mcp_error(exc) from exc
         return {
             "type": "callback",
-            "text": target.text,
+            "text": target["text"],
+            "source": source,
             "alert": bool(result.alert),
             "has_url": bool(result.has_url),
             "message": getattr(result, "message", None),

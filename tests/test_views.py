@@ -313,3 +313,200 @@ def test_inline_result_view() -> None:
         id="r2", type="photo", title=None, description=None, url=None, thumb=None, send_message=None
     )
     assert inline_result_view(media)["thumb_url"] is None
+
+
+# ---------- 富消息(rich_message)完整结构 ----------
+#
+# 以下用真实 raw.types:dispatch 按类名走,SimpleNamespace 替身不适用。
+
+
+def _raw_rich(blocks: list, **kw):
+    from pyrogram.raw.types import RichMessage
+
+    return types.SimpleNamespace(rich_message=RichMessage(blocks=blocks, photos=[], documents=[], **kw))
+
+
+def test_rich_details_block() -> None:
+    """PageBlockDetails 嵌套块不丢(旧实现只认 .text → rich: null 的报障场景)。"""
+    from pyrogram.raw.types import PageBlockDetails, PageBlockParagraph, TextPlain
+
+    from kurigram_mcp.telegram.views import _rich_message_view
+
+    rich = _raw_rich(
+        [
+            PageBlockDetails(
+                title=TextPlain(text="T"),
+                blocks=[PageBlockParagraph(text=TextPlain(text="inner"))],
+            )
+        ]
+    )
+    v = _rich_message_view(rich)
+    assert v is not None
+    b = v["blocks"][0]
+    assert b["type"] == "details"
+    assert b["title"] == "T"
+    assert b["open"] is False
+    assert b["blocks"][0]["type"] == "paragraph" and b["blocks"][0]["text"] == "inner"
+    assert "T" in v["text"] and "inner" in v["text"]
+    assert v["buttons"] is None and v["partial"] is False
+
+
+def test_rich_list_with_blocks_items() -> None:
+    """PageListItemBlocks 的文本在 .blocks 里(旧实现读 .text → 列表全空的报障场景)。"""
+    from pyrogram.raw.types import (
+        PageBlockList,
+        PageBlockParagraph,
+        PageListItemBlocks,
+        PageListItemText,
+        TextPlain,
+    )
+
+    from kurigram_mcp.telegram.views import _rich_message_view
+
+    rich = _raw_rich(
+        [
+            PageBlockList(
+                items=[
+                    PageListItemBlocks(blocks=[PageBlockParagraph(text=TextPlain(text="a"))]),
+                    PageListItemText(text=TextPlain(text="b"), checkbox=True, checked=True),
+                ]
+            )
+        ]
+    )
+    v = _rich_message_view(rich)
+    b = v["blocks"][0]
+    assert b["type"] == "list"
+    assert [i["label"] for i in b["items"]] == ["•", "•"]
+    assert b["items"][0]["text"] == "a" and "checked" not in b["items"][0]
+    assert b["items"][1]["text"] == "b" and b["items"][1]["checked"] is True
+    assert b["text"] == "• a\n• [x] b"
+    assert v["text"] == "• a\n• [x] b"
+
+
+def test_rich_ordered_list() -> None:
+    from pyrogram.raw.types import PageBlockOrderedList, PageListOrderedItemText, TextPlain
+
+    from kurigram_mcp.telegram.views import _rich_message_view
+
+    rich = _raw_rich([PageBlockOrderedList(items=[PageListOrderedItemText(num="1.", text=TextPlain(text="x"))])])
+    b = _rich_message_view(rich)["blocks"][0]
+    assert b["type"] == "orderedlist"
+    assert b["items"][0]["label"] == "1." and b["items"][0]["text"] == "x"
+    assert b["text"] == "1. x"
+
+
+def test_rich_button_row_nested_in_details() -> None:
+    """嵌在 Details 里的按钮行也要出现在 rich.buttons(供 click_inline_button 点击)。"""
+    from pyrogram.raw.types import (
+        InlineButtonTypeCallback,
+        InlineButtonTypeCopy,
+        InlineButtonTypeUrl,
+        PageBlockButtonRow,
+        PageBlockDetails,
+        PageButton,
+        RichButtonStyle,
+        TextPlain,
+    )
+
+    from kurigram_mcp.telegram.views import _rich_message_view
+
+    row = PageBlockButtonRow(
+        buttons=[
+            PageButton(
+                text=TextPlain(text="OK"),
+                type=InlineButtonTypeCallback(data=b"act:1"),
+                style=RichButtonStyle(bg_danger=True),
+            ),
+            PageButton(text=TextPlain(text="Docs"), type=InlineButtonTypeUrl(url="https://d")),
+            PageButton(text=TextPlain(text="Copy"), type=InlineButtonTypeCopy(copy_text="c")),
+        ]
+    )
+    v = _rich_message_view(_raw_rich([PageBlockDetails(title=TextPlain(text="t"), blocks=[row])]))
+    assert v["buttons"] == [
+        [
+            {"text": "OK", "type": "callback", "callback_data": "act:1", "style": "danger"},
+            {"text": "Docs", "type": "url", "url": "https://d"},
+            {"text": "Copy", "type": "copy", "copy_text": "c"},
+        ]
+    ]
+    row_block = v["blocks"][0]["blocks"][0]
+    assert row_block["type"] == "buttonrow" and row_block["text"] == "[OK] [Docs] [Copy]"
+
+
+def test_rich_photo_block() -> None:
+    """photo_id 是 64 位整数,序列化成字符串避免 JS 丢精度。"""
+    from pyrogram.raw.types import PageBlockPhoto, PageCaption, TextEmpty, TextPlain
+
+    from kurigram_mcp.telegram.views import _rich_message_view
+
+    rich = _raw_rich(
+        [
+            PageBlockPhoto(
+                photo_id=2**62,
+                caption=PageCaption(text=TextPlain(text="cap"), credit=TextEmpty()),
+            )
+        ]
+    )
+    b = _rich_message_view(rich)["blocks"][0]
+    assert b["type"] == "photo" and b["photo_id"] == str(2**62)
+    assert b["caption"] == "cap" and b["text"] == "[图片] cap"
+
+
+def test_rich_unknown_block_not_dropped() -> None:
+    """未知 PageBlock 类型走兜底:能递归出嵌套内容,绝不静默丢弃。"""
+    from pyrogram.raw.types import PageBlockParagraph, TextPlain
+
+    from kurigram_mcp.telegram.views import _rich_message_view
+
+    class PageBlockWeird:
+        def __init__(self) -> None:
+            self.blocks = [PageBlockParagraph(text=TextPlain(text="deep"))]
+
+    class PageBlockMystery:
+        pass
+
+    v = _rich_message_view(_raw_rich([PageBlockWeird(), PageBlockMystery()]))
+    assert v["blocks"][0]["type"] == "weird" and v["blocks"][0]["text"] == "deep"
+    assert v["blocks"][1]["unsupported"] is True
+    assert v["text"] == "deep"
+
+
+def test_rich_text_custom_emoji_and_math() -> None:
+    from pyrogram.raw.types import TextCustomEmoji, TextMath
+
+    from kurigram_mcp.telegram.views import _rich_text
+
+    assert _rich_text(TextCustomEmoji(document_id=1, alt="🎉")) == "🎉"
+    assert _rich_text(TextCustomEmoji(document_id=1, alt="")) == "[emoji]"
+    assert _rich_text(TextMath(source="x^2")) == "x^2"
+
+
+def test_button_view_extra_fields() -> None:
+    """InlineKeyboardButton 新增字段:requires_password/copy_text/style 等。"""
+    from kurigram_mcp.telegram.views import _button_view
+
+    btn = types.SimpleNamespace(
+        text="危险",
+        callback_data=b"d",
+        requires_password=True,
+        copy_text=types.SimpleNamespace(text="复制我"),
+        style=types.SimpleNamespace(name="DANGER"),
+    )
+    v = _button_view(btn)
+    assert v["callback_data"] == "d"
+    assert v["requires_password"] is True
+    assert v["copy_text"] == "复制我"
+    assert v["style"] == "danger"
+    # DEFAULT 样式不输出
+    btn2 = types.SimpleNamespace(text="普通", callback_data=b"d", style=types.SimpleNamespace(name="DEFAULT"))
+    assert "style" not in _button_view(btn2)
+
+
+def test_message_view_ephemeral_message_id() -> None:
+    """临时消息 id=0,真实 id 在 ephemeral_message_id。"""
+    msg = make_msg(id=0)
+    msg.ephemeral_message_id = 777
+    v = message_view(msg)
+    assert v["message_id"] == 0 and v["ephemeral_message_id"] == 777
+    # 普通消息 -> None
+    assert message_view(make_msg())["ephemeral_message_id"] is None
