@@ -90,6 +90,7 @@ class RecordingRaw:
 
 def _client(raw: RecordingRaw) -> TelegramClient:
     tc = TelegramClient.__new__(TelegramClient)
+    tc.settings = types.SimpleNamespace(uploads_dir=None)  # upload:// 解析所需;无暂存目录即可
     tc._client = raw
     return tc
 

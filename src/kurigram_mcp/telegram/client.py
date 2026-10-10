@@ -23,6 +23,7 @@ from pyrogram.types import Message, MessageReactionUpdated, ReplyParameters, Use
 
 from ..config import Settings
 from ..errors import INTERNAL, RPC, SESSION_INVALID, McpError, to_mcp_error
+from ..files import resolve_media_ref
 from .raw import build_value, resolve_function, to_plain
 from .updates import EventBus
 from .views import chat_view, inline_result_view, message_view, poll_view, user_view
@@ -373,7 +374,8 @@ class TelegramClient:
                 raise McpError(INTERNAL, f"media id 不合法: {media_id!r}(1-64 位,仅字母/数字/_/-)")
             src = item.get("media")
             if not src:
-                raise McpError(INTERNAL, "media 条目需包含 media(路径/file_id/URL)")
+                raise McpError(INTERNAL, "media 条目需包含 media(路径/file_id/URL/upload:// 引用)")
+            src = resolve_media_ref(src, self.settings.uploads_dir)
             media_items.append(
                 InputRichMessageMedia(id=media_id, media=_MEDIA_CLS[_media_type(src, item.get("type"))](src))
             )
@@ -402,6 +404,7 @@ class TelegramClient:
         parse_mode: str = "none",
         reply_to_message_id: int | None = None,
     ) -> dict:
+        media = resolve_media_ref(media, self.settings.uploads_dir)
         msg = await self.raw.send_photo(
             chat_id,
             media,
@@ -419,6 +422,7 @@ class TelegramClient:
         parse_mode: str = "none",
         reply_to_message_id: int | None = None,
     ) -> dict:
+        media = resolve_media_ref(media, self.settings.uploads_dir)
         msg = await self.raw.send_document(
             chat_id,
             media,
@@ -668,7 +672,8 @@ class TelegramClient:
         parse_mode: str = "none",
         reply_to_message_id: int | None = None,
     ) -> dict:
-        """发送语音。media:本地路径 | Telegram file_id | http(s) URL。"""
+        """发送语音。media:本地路径 | Telegram file_id | http(s) URL | upload:// 引用。"""
+        media = resolve_media_ref(media, self.settings.uploads_dir)
         msg = await self.raw.send_voice(
             chat_id,
             media,
@@ -679,7 +684,8 @@ class TelegramClient:
         return message_view(msg)
 
     async def send_sticker(self, chat_id: int, media: str, reply_to_message_id: int | None = None) -> dict:
-        """发送贴纸。media:本地 .webp 路径 | Telegram file_id | http(s) URL。"""
+        """发送贴纸。media:本地 .webp 路径 | Telegram file_id | http(s) URL | upload:// 引用。"""
+        media = resolve_media_ref(media, self.settings.uploads_dir)
         msg = await self.raw.send_sticker(chat_id, media, reply_parameters=_reply(reply_to_message_id))
         return message_view(msg)
 
@@ -711,12 +717,14 @@ class TelegramClient:
         items = []
         for item in media:
             if isinstance(item, str):
-                kind = "photo" if str(item).lower().endswith(_IMAGE_EXT) else "document"
-                items.append(_MEDIA_CLS[kind](item))
+                src = resolve_media_ref(item, self.settings.uploads_dir)
+                kind = "photo" if str(src).lower().endswith(_IMAGE_EXT) else "document"
+                items.append(_MEDIA_CLS[kind](src))
             elif isinstance(item, dict):
                 src = item.get("media")
                 if not src:
-                    raise McpError(INTERNAL, "media_group 条目需包含 media(路径/file_id/URL)")
+                    raise McpError(INTERNAL, "media_group 条目需包含 media(路径/file_id/URL/upload:// 引用)")
+                src = resolve_media_ref(src, self.settings.uploads_dir)
                 kind = item.get("type") or ("photo" if str(src).lower().endswith(_IMAGE_EXT) else "document")
                 if kind not in _MEDIA_CLS:
                     raise McpError(

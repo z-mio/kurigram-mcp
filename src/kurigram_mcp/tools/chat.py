@@ -6,8 +6,13 @@ chat_id 参数统一支持:数字 id(含群/频道负 ID)、@username、me(Saved
 
 from __future__ import annotations
 
+import secrets
+from urllib.parse import quote
+
 from mcp.server.mcpserver import Context, MCPServer
 
+from ..errors import INTERNAL, McpError
+from ..files import sanitize_name
 from .common import (
     ServerState,
     access_for,
@@ -18,6 +23,30 @@ from .common import (
 
 
 def register(mcp: MCPServer[ServerState]) -> None:
+    @mcp.tool()
+    @wrap_errors
+    async def create_upload_url(ctx: Context[ServerState], file_name: str) -> dict:
+        """生成一次性上传 URL:远程客户端 `curl -T <本地文件> '<url>'` 把文件推到服务器暂存区,
+        再把返回的 media(upload://<uid>/<name>)作为 media 参数传给
+        send_photo/send_document/send_voice/send_sticker/send_media_group/send_rich_message。
+
+        url 为一次性(重复 PUT 返回 409);upload:// 引用可复用直到保留期到期被清理。"""
+        state = ctx.request_context.lifespan_context
+        gateway = state.files
+        if gateway is None:
+            raise McpError(INTERNAL, "文件网关未启用(lifespan 未完成)")
+        name = sanitize_name(file_name)
+        uid = secrets.token_urlsafe(16)
+        token = gateway.sign({"scope": "upload", "uid": uid, "name": name, "max": gateway.max_upload_bytes})
+        url = f"{gateway.base_url}/upload/{quote(name)}?token={token}"
+        return {
+            "url": url,
+            "media": f"upload://{uid}/{name}",
+            "max_bytes": gateway.max_upload_bytes,
+            "expires_in": gateway.ttl,
+            "usage": f"curl -T <本地文件> '{url}'",
+        }
+
     @mcp.tool()
     @wrap_errors
     async def send_message(
@@ -62,7 +91,8 @@ def register(mcp: MCPServer[ServerState]) -> None:
         `<aside>`、`<tg-map lat="" long="" zoom=""/>`。
 
         media:内容里用 tg://photo?id=<id> 等链接引用的媒体,每项
-        {"id", "media"(本地路径/file_id/URL), "type"(可选 photo/video/audio/document/animation/voice,
+        {"id", "media"(本地路径/file_id/URL/upload:// 引用,见 create_upload_url),
+        "type"(可选 photo/video/audio/document/animation/voice,
         缺省按扩展名推断)};http(s) URL 图片直接用 ![](url),无需 media。
 
         返回的 rich 字段即服务器解析后的结构;若 rich 为 null(服务器只回了简短确认),
@@ -96,7 +126,8 @@ def register(mcp: MCPServer[ServerState]) -> None:
         reply_to_message_id: int | None = None,
         account: str | None = None,
     ) -> dict:
-        """发送图片。media:本地路径(服务器侧可访问)| Telegram file_id | http(s) URL;
+        """发送图片。media:本地路径(服务器侧可访问)| Telegram file_id | http(s) URL
+        | upload:// 引用(create_upload_url 远程上传所得);
         媒体类型按扩展名自动识别(图片→photo)。
         caption 会出现在返回的 text 字段。parse_mode: none | markdown | html(作用于 caption)。"""
         state = ctx.request_context.lifespan_context
@@ -123,7 +154,8 @@ def register(mcp: MCPServer[ServerState]) -> None:
         reply_to_message_id: int | None = None,
         account: str | None = None,
     ) -> dict:
-        """发送文件。media:本地路径(服务器侧可访问)| Telegram file_id | http(s) URL;
+        """发送文件。media:本地路径(服务器侧可访问)| Telegram file_id | http(s) URL
+        | upload:// 引用(create_upload_url 远程上传所得);
         媒体类型按扩展名自动识别(如 .ogg→voice、.webp→sticker)。caption 会出现在返回的 text 字段。
         parse_mode: none | markdown | html(作用于 caption)。"""
         state = ctx.request_context.lifespan_context
@@ -150,8 +182,8 @@ def register(mcp: MCPServer[ServerState]) -> None:
         reply_to_message_id: int | None = None,
         account: str | None = None,
     ) -> dict:
-        """发送语音(voice note)。media:本地路径(服务器侧可访问)| Telegram file_id | http(s) URL;
-        建议用 .ogg/.mp3 音频文件。
+        """发送语音(voice note)。media:本地路径(服务器侧可访问)| Telegram file_id | http(s) URL
+        | upload:// 引用(create_upload_url 远程上传所得);建议用 .ogg/.mp3 音频文件。
         caption 会出现在返回的 text 字段。parse_mode: none | markdown | html(作用于 caption)。
         """
         state = ctx.request_context.lifespan_context
@@ -176,7 +208,8 @@ def register(mcp: MCPServer[ServerState]) -> None:
         reply_to_message_id: int | None = None,
         account: str | None = None,
     ) -> dict:
-        """发送贴纸。media:本地 .webp 路径 | Telegram file_id | http(s) URL。"""
+        """发送贴纸。media:本地 .webp 路径 | Telegram file_id | http(s) URL
+        | upload:// 引用(create_upload_url 远程上传所得)。"""
         state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
@@ -193,8 +226,9 @@ def register(mcp: MCPServer[ServerState]) -> None:
         reply_to_message_id: int | None = None,
         account: str | None = None,
     ) -> dict:
-        """发送相册(媒体组)。media 条目:字符串(路径/file_id/URL)或
-        {"media": ..., "type": "photo"|"document", "caption": ...}。"""
+        """发送相册(媒体组)。media 条目:字符串(路径/file_id/URL/upload:// 引用)或
+        {"media": ..., "type": "photo"|"document", "caption": ...};
+        upload:// 引用来自 create_upload_url 远程上传。"""
         state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)

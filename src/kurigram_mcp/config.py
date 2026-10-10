@@ -112,6 +112,14 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8765
     auth_token: str | None = None
+    # 对外可访问的基础 URL(如 Cloudflare tunnel 域名);留空按 host:port 推导
+    public_base_url: str | None = None
+    # 签名文件 URL 的有效期(秒)
+    file_url_ttl_seconds: int = 900
+    # 单次上传大小上限(字节)
+    upload_max_bytes: int = 2 * 1024**3
+    # 上传暂存文件的保留时长(小时),过期由后台任务清理
+    upload_retention_hours: int = 24
 
     # ---- 网络 ----
     proxy: str | None = None
@@ -138,6 +146,11 @@ class Settings(BaseSettings):
     @property
     def downloads_dir(self) -> Path:
         return Path(self.session_dir) / "downloads"
+
+    @property
+    def uploads_dir(self) -> Path:
+        """远程上传暂存目录:session_dir/uploads(按 uid 分桶,过期自动清理)。"""
+        return Path(self.session_dir) / "uploads"
 
     def ensure_dirs(self) -> None:
         """确保数据/会话目录存在(登录与服务器启动时调用)。"""

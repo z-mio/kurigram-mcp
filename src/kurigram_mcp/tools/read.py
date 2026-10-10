@@ -5,8 +5,12 @@
 
 from __future__ import annotations
 
+import shlex
+
 from mcp.server.mcpserver import Context, MCPServer
 
+from ..errors import INTERNAL, McpError
+from ..files import media_info
 from .common import ServerState, access_for, require_chat, resolve_chat_id, wrap_errors
 
 
@@ -101,10 +105,47 @@ def register(mcp: MCPServer[ServerState]) -> None:
         path: str | None = None,
         account: str | None = None,
     ) -> dict:
-        """下载消息中的媒体到本地路径(默认 downloads/<chat_id>/<message_id>),返回绝对路径供进一步读取。"""
+        """下载消息中的媒体到本地路径(默认 downloads/<chat_id>/<message_id>),返回绝对路径供进一步读取。
+        远程客户端拿不到服务器本地文件:远程使用请用 get_media_url 生成签名下载 URL。"""
         state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
         return await client.download_media(chat_id, message_id, path)
+
+    @mcp.tool()
+    @wrap_errors
+    async def get_media_url(
+        ctx: Context[ServerState],
+        chat_id: int | str,
+        message_id: int,
+        account: str | None = None,
+    ) -> dict:
+        """生成消息媒体的短时效签名下载 URL(远程客户端经 HTTP 直接拉取,支持 Range 断点续传)。
+
+        返回的 url 可直接 `curl -o <file_name> '<url>'` 下载;过期后重新调用本工具即可。
+        URL 绑定账号/聊天/消息,泄露窗口仅限 expires_in 秒。"""
+        state = ctx.request_context.lifespan_context
+        client = state.resolve(account)
+        access = access_for(state, account)
+        chat_id = await resolve_chat_id(client, chat_id)
+        require_chat(access, chat_id)
+        gateway = state.files
+        if gateway is None:
+            raise McpError(INTERNAL, "文件网关未启用(lifespan 未完成)")
+        msg = await client.raw.get_messages(chat_id, message_id)
+        info = media_info(msg, message_id)
+        if info is None:
+            raise McpError("NO_MEDIA", f"消息 {message_id} 没有可下载媒体(或已被删除)")
+        acc = client.settings.account_name or state.default
+        token = gateway.sign({"scope": "download", "acc": acc, "chat": chat_id, "msg": message_id})
+        url = f"{gateway.base_url}/files/{chat_id}/{message_id}?token={token}"
+        return {
+            "url": url,
+            "file_name": info["file_name"],
+            "mime_type": info["mime_type"],
+            "size_bytes": info["size"],
+            "expires_in": gateway.ttl,
+            "usage": f"curl -o {shlex.quote(info['file_name'])} '{url}'",
+        }

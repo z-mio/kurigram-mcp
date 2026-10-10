@@ -76,14 +76,16 @@ km run                   # every tool now accepts account="alice" / account="bob
 - Per-account `--allowed-chat-ids` overrides the global whitelist for that account; accounts without their own whitelist
   fall back to the global `allowed_chat_ids`.
 - `mcp_get_server_info` lists all connected accounts.
+- Short flags: `km run -a/--account -H/--host -p/--port -u/--public-url -s/--stateful`;
+  `km session add/set -x/--proxy -c/--allowed-chat-ids`; `km -V/--version`.
 
-## 🧰 Tools (34)
+## 🧰 Tools (36)
 
 | Group      | Tools                                                                                                                                                                                                                                                                        |
 |------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | 🧾 Session | `whoami`, `mcp_get_server_info`                                                                                                                                                                                                                                              |
-| 📤 Send    | `send_message`, `send_rich_message`, `send_photo`, `send_document`, `send_voice`, `send_sticker`, `send_media_group`, `send_poll`, `vote_poll`, `forward_message`, `edit_message`, `delete_message`, `send_chat_action`, `start_bot`, `click_inline_button`, `send_reaction`, `send_inline_query` |
-| 📥 Read    | `get_chat`, `get_chat_history`, `get_messages`, `get_dialogs`, `search_messages`, `get_chat_members_count`, `download_media`                                                                                                                                                 |
+| 📤 Send    | `send_message`, `send_rich_message`, `send_photo`, `send_document`, `send_voice`, `send_sticker`, `send_media_group`, `send_poll`, `vote_poll`, `forward_message`, `edit_message`, `delete_message`, `send_chat_action`, `start_bot`, `click_inline_button`, `send_reaction`, `send_inline_query`, `create_upload_url` |
+| 📥 Read    | `get_chat`, `get_chat_history`, `get_messages`, `get_dialogs`, `search_messages`, `get_chat_members_count`, `download_media`, `get_media_url`                                                                                                                               |
 | 👥 Group   | `join_chat`, `leave_chat`                                                                                                                                                                                                                                                    |
 | ⏱️ Events   | `wait_for_update` (predicates include `is_media` / `media_type`), `drain_updates`                                                                                                                                                                                          |
 | 🔬 Deep    | `raw_invoke`, `list_raw_methods`, `get_raw_method_info`                                                                                                                                                                                                                      |
@@ -121,6 +123,44 @@ http_headers = { "Authorization" = "Bearer <AUTH_TOKEN>" }
    numeric chat ids, `@username`, `me`). Each account is isolated.
 2. **Global fallback** — config `allowed_chat_ids` applies to any account that didn't set its own.
 
+### 📁 Remote File Transfer
+
+Remote MCP clients can't reach the server's local filesystem, so media transfer goes through
+short-lived signed URLs (presigned-URL pattern):
+
+- **Download** — `get_media_url(chat_id, message_id)` returns `{url, file_name, mime_type,
+  size_bytes}`; `curl -o <file_name> '<url>'` fetches the media over plain HTTP
+  (`GET /files/<chat>/<msg>`, `Range` supported for resume).
+- **Upload** — `create_upload_url(file_name)` returns `{url, media}`;
+  `curl -T <local file> '<url>'` PUTs the file into a per-upload staging dir, then pass `media`
+  (`upload://<uid>/<name>`) directly to `send_photo` / `send_document` / `send_voice` /
+  `send_sticker` / `send_media_group` / `send_rich_message`.
+
+Tokens are HS256 JWTs signed by an in-process key (a restart invalidates all outstanding URLs),
+each bound to a single resource, expiring after `file_url_ttl_seconds` (default 900s). Upload URLs
+are single-use; staged files are cleaned up after `upload_retention_hours` (default 24h).
+
+For humans and scripts, the master `AUTH_TOKEN` is also accepted — via the
+`Authorization: Bearer` header only (never as `?token=`):
+
+```bash
+curl -T a.png -H "Authorization: Bearer $AUTH_TOKEN" http://host:port/upload/a.png
+curl -H "Authorization: Bearer $AUTH_TOKEN" -o x http://host:port/files/<chat_id>/<message_id>
+```
+
+> **Public URL (reverse proxy / Cloudflare Tunnel)**: when the server is reached from outside,
+> pass `-u, --public-url` so generated upload/download links point at the external address — the
+> proxy rewrites the `Host` header, which is why the server never derives URLs from requests.
+> Not needed for local-only use:
+>
+> ```bash
+> km run --public-url https://kurigram.example.com
+> ```
+>
+> (`PUBLIC_BASE_URL` env or `public_base_url` in config.yaml work too; the flag wins.) Note that
+> Cloudflare's proxy caps request bodies at 100 MB on Free/Pro plans: larger uploads through the
+> tunnel get a 413 from Cloudflare itself (downloads are unaffected).
+
 ## ⚙️ Configuration
 
 All configuration lives in **one file**: `~/.kurigram-mcp/config.yaml`.
@@ -132,6 +172,10 @@ allowed_chat_ids: "123456789,me"   # global fallback whitelist (per-account over
 host: 127.0.0.1
 port: 8765
 auth_token: auto_generated_or_yours # Bearer auth
+public_base_url: ""                 # public URL when reached from outside (e.g. tunnel domain); skip for local-only use
+file_url_ttl_seconds: 900           # signed file URL lifetime
+upload_max_bytes: 2147483648        # per-upload size cap (2 GiB)
+upload_retention_hours: 24          # staged upload retention before cleanup
 proxy: ""                           # optional, e.g. socks5://127.0.0.1:1080
 ```
 
@@ -142,6 +186,7 @@ proxy: ""                           # optional, e.g. socks5://127.0.0.1:1080
 ├── config.yaml         # setup-generated config (chmod 600)
 ├── sessions/           # Telegram session files: u_{API_ID}.session (one per account)
 ├── downloads/          # download_media output
+├── uploads/            # create_upload_url staging (per-uid dirs, auto-cleaned after retention)
 ```
 
 ## 🧑‍💻 Development

@@ -383,15 +383,21 @@ def build_parser() -> argparse.ArgumentParser:
         prog="kurigram-mcp",
         description="MCP server for debugging Telegram bots via a user session",
     )
-    parser.add_argument("--version", action="version", version=f"kurigram-mcp {__version__}")
+    parser.add_argument("-V", "--version", action="version", version=f"kurigram-mcp {__version__}")
     sub = parser.add_subparsers(dest="command")
 
     run_p = sub.add_parser("run", help="启动 MCP 服务器")
-    run_p.add_argument("--account", help="只启动指定账号(缺省:启动全部已注册账号;见 `session list`)")
-    run_p.add_argument("--host", help="监听地址(默认取 HOST,127.0.0.1)")
-    run_p.add_argument("--port", type=int, help="监听端口(默认取 PORT,8765)")
+    run_p.add_argument("-a", "--account", help="只启动指定账号(缺省:启动全部已注册账号;见 `session list`)")
+    run_p.add_argument("-H", "--host", help="监听地址(默认取 HOST,127.0.0.1)")
+    run_p.add_argument("-p", "--port", type=int, help="监听端口(默认取 PORT,8765)")
     run_p.add_argument("--path", default="/mcp", help="Streamable HTTP 端点路径(默认 /mcp)")
-    run_p.add_argument("--stateful", action="store_true", help="使用有状态会话模式(默认无状态,推荐)")
+    run_p.add_argument(
+        "-u",
+        "--public-url",
+        help="外网访问地址:通过反代/Cloudflare 隧道等从外网使用本服务时填写,如 https://tg.example.com,"
+        "用于生成远程上传/下载文件的链接;仅在本机使用可不填",
+    )
+    run_p.add_argument("-s", "--stateful", action="store_true", help="使用有状态会话模式(默认无状态,推荐)")
     run_p.add_argument("--json-response", action="store_true", help="纯 JSON 响应,不用 SSE(部分客户端不支持)")
 
     session_p = sub.add_parser("session", help="账号管理:add(注册+登录)/ list / set / remove")
@@ -402,13 +408,13 @@ def build_parser() -> argparse.ArgumentParser:
     add_p.add_argument("name", nargs="?", help="账号名;缺省交互询问;已存在 = 重新登录")
     add_p.add_argument("--api-id", type=int, help="API_ID(缺省交互询问,可回车复用现有)")
     add_p.add_argument("--api-hash", help="API_HASH(缺省交互询问,getpass 隐藏输入)")
-    add_p.add_argument("--proxy", help="该账号专用代理(可选)")
-    add_p.add_argument("--allowed-chat-ids", help="该账号专用白名单(可选,逗号分隔;留空用全局)")
+    add_p.add_argument("-x", "--proxy", help="该账号专用代理(可选)")
+    add_p.add_argument("-c", "--allowed-chat-ids", help="该账号专用白名单(可选,逗号分隔;留空用全局)")
 
     set_p = session_sub.add_parser("set", help="修改账号配置(白名单/代理),下次 `km run` 时生效")
     set_p.add_argument("name", nargs="?", help="账号名;缺省交互选择")
-    set_p.add_argument("--allowed-chat-ids", help="新白名单(逗号分隔;传空字符串 '' 清除→回退全局)")
-    set_p.add_argument("--proxy", help="新代理(传空字符串 '' 清除→直连/全局)")
+    set_p.add_argument("-c", "--allowed-chat-ids", help="新白名单(逗号分隔;传空字符串 '' 清除→回退全局)")
+    set_p.add_argument("-x", "--proxy", help="新代理(传空字符串 '' 清除→直连/全局)")
 
     rm_p = session_sub.add_parser("remove", aliases=["rm"], help="删除账号(注册条目 + 会话文件)")
     rm_p.add_argument("name", nargs="?", help="账号名;缺省交互选择")
@@ -454,6 +460,8 @@ def main(argv: list[str] | None = None) -> int:
         overrides["port"] = args.port
     if getattr(args, "path", None):
         overrides["path"] = args.path
+    if getattr(args, "public_url", None):
+        overrides["public_url"] = args.public_url
     overrides["stateless"] = not getattr(args, "stateful", False)  # 默认无状态(服务器重启客户端自动恢复)
     if getattr(args, "json_response", False):
         overrides["json_response"] = True

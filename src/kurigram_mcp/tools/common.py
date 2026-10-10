@@ -5,11 +5,14 @@ from __future__ import annotations
 import functools
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..access import AccessControl
 from ..errors import ACCOUNT_NOT_FOUND, NOT_WHITELISTED, McpError, to_mcp_error
 from ..telegram.client import TelegramClient
+
+if TYPE_CHECKING:
+    from ..files import FileGateway
 
 
 @dataclass
@@ -18,12 +21,14 @@ class ServerState:
 
     clients/accesses 按账号名索引;default 为缺省账号
     (旧式顶层配置的 "default",或首个成功连接的注册账号)。
+    files 为签名 URL 文件网关(由 lifespan 注入,供 get_media_url/create_upload_url 使用)。
     """
 
     clients: dict[str, TelegramClient] = field(default_factory=dict)
     accesses: dict[str, AccessControl] = field(default_factory=dict)
     default: str = ""
     started_at: float = 0.0
+    files: FileGateway | None = None
 
     @property
     def client(self) -> TelegramClient:

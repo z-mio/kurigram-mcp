@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import time
 from collections.abc import AsyncIterator
@@ -18,6 +19,7 @@ from . import __version__
 from .access import AccessControl
 from .config import Settings
 from .errors import ACCOUNT_NOT_FOUND, McpError
+from .files import FileGateway, default_base_url
 from .telegram.client import TelegramClient
 from .tools import ServerState, register_tools
 
@@ -48,8 +50,22 @@ def _auth_settings() -> AuthSettings:
     )
 
 
-def build_server(settings: Settings, accounts: list[str] | None = None) -> MCPServer[ServerState]:
-    """accounts 为 None 时启动全部已注册账号;否则只启动指定账号列表。"""
+def build_server(
+    settings: Settings, accounts: list[str] | None = None, base_url: str | None = None
+) -> MCPServer[ServerState]:
+    """accounts 为 None 时启动全部已注册账号;否则只启动指定账号列表。
+
+    base_url 为签名文件 URL 的对外基址(缺省按 settings 推导;run_server 会按
+    实际生效的 host/port 计算后传入)。
+    """
+    gateway = FileGateway(
+        auth_token=settings.auth_token,
+        base_url=base_url or default_base_url(settings.public_base_url, settings.host, settings.port),
+        ttl=settings.file_url_ttl_seconds,
+        max_upload_bytes=settings.upload_max_bytes,
+        uploads_dir=settings.uploads_dir,
+        retention_seconds=settings.upload_retention_hours * 3600,
+    )
 
     @asynccontextmanager
     async def lifespan(server: MCPServer[ServerState]) -> AsyncIterator[ServerState]:
@@ -86,9 +102,13 @@ def build_server(settings: Settings, accounts: list[str] | None = None) -> MCPSe
             )
         default = names[0] if names[0] in clients else next(iter(clients))
         state = ServerState(clients=clients, accesses=accesses, default=default, started_at=time.monotonic())
+        state.files = gateway
+        gateway.state = state
+        cleanup = asyncio.create_task(gateway.cleanup_loop())
         try:
             yield state
         finally:
+            cleanup.cancel()
             for client in clients.values():
                 try:
                     await client.stop()
@@ -108,6 +128,7 @@ def build_server(settings: Settings, accounts: list[str] | None = None) -> MCPSe
         **kwargs,
     )
     register_tools(mcp)
+    gateway.register_routes(mcp)
     return mcp
 
 
@@ -129,11 +150,17 @@ def _refresh_me_snapshot(acc_settings: Settings, me: User, dc: int | None) -> No
 
 
 def run_server(settings: Settings, accounts: list[str] | None = None, **overrides: Any) -> None:
-    mcp = build_server(settings, accounts)
+    host = overrides.get("host", settings.host)
+    port = overrides.get("port", settings.port)
+    mcp = build_server(
+        settings,
+        accounts,
+        base_url=default_base_url(overrides.get("public_url") or settings.public_base_url, host, port),
+    )
     mcp.run(
         transport="streamable-http",
-        host=overrides.get("host", settings.host),
-        port=overrides.get("port", settings.port),
+        host=host,
+        port=port,
         streamable_http_path=overrides.get("path", "/mcp"),
         stateless_http=bool(overrides.get("stateless", False)),
         json_response=bool(overrides.get("json_response", False)),
