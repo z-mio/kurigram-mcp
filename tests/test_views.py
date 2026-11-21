@@ -710,3 +710,44 @@ def test_rich_table_button_in_globally_unique() -> None:
         [{"text": "x", "type": "callback", "callback_data": "a", "in": "table0[0][0]"}],
         [{"text": "x", "type": "callback", "callback_data": "b", "in": "table1[0][0]"}],
     ]
+
+
+def test_chat_view_forum_fields() -> None:
+    """chat_view 应透出 is_forum 与 has_forum_sidebar(Layer 233)。"""
+    from kurigram_mcp.telegram.views import chat_view
+
+    forum = types.SimpleNamespace(
+        id=-1001,
+        type=types.SimpleNamespace(value="supergroup"),
+        title="Dev Forum",
+        is_forum=True,
+        has_forum_sidebar=True,
+    )
+    v = chat_view(forum)
+    assert v["is_forum"] is True
+    assert v["has_forum_sidebar"] is True
+
+
+def test_message_view_sender_chat_and_thread_id() -> None:
+    """匿名管理员/频道发言带 sender_chat;论坛话题消息带 message_thread_id。"""
+    msg = make_msg(
+        from_user=None,
+        sender_chat=types.SimpleNamespace(
+            id=-1009,
+            title="Announcements",
+            username="ann_ch",
+            type=types.SimpleNamespace(value="channel"),
+        ),
+        message_thread_id=77,
+    )
+    v = message_view(msg)
+    assert v["from"] is None
+    assert v["sender_chat"] == {
+        "id": -1009,
+        "title": "Announcements",
+        "username": "ann_ch",
+        "type": "channel",
+    }
+    assert v["message_thread_id"] == 77
+    assert message_view(make_msg())["sender_chat"] is None
+    assert message_view(make_msg())["message_thread_id"] is None

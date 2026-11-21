@@ -426,11 +426,13 @@ class FakeSendRaw:
         self.document_media: str | None = None
         self.group_media: list | None = None
 
-    async def send_document(self, chat_id, media, caption="", parse_mode=None, reply_parameters=None):
+    async def send_document(
+        self, chat_id, media, caption="", parse_mode=None, reply_parameters=None, message_thread_id=None
+    ):
         self.document_media = media
         return types.SimpleNamespace(id=1)
 
-    async def send_media_group(self, chat_id, items, reply_parameters=None):
+    async def send_media_group(self, chat_id, items, reply_parameters=None, message_thread_id=None):
         self.group_media = [i.media for i in items]
         return [types.SimpleNamespace(id=1)]
 
@@ -589,8 +591,9 @@ def test_run_server_public_url_precedence(monkeypatch) -> None:
         def run(self, **kw):
             captured["run"] = kw
 
-    def fake_build(settings, accounts=None, base_url=None):
+    def fake_build(settings, accounts=None, base_url=None, toolsets=None):
         captured["base_url"] = base_url
+        captured["toolsets"] = toolsets
         return StubMCP()
 
     monkeypatch.setattr(srv, "build_server", fake_build)

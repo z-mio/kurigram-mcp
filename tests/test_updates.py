@@ -209,5 +209,19 @@ async def test_predicate_after_seq_skips_old_events() -> None:
     assert p(ev1) is False
 
 
+def test_predicate_message_thread_id() -> None:
+    """message_thread_id 谓词仅匹配指定论坛话题内的消息事件。"""
+    bus = EventBus()
+    _ev(bus, "message", 1, payload={"text": "topic A", "message_thread_id": 10})
+    _ev(bus, "message", 1, payload={"text": "topic B", "message_thread_id": 20})
+    _ev(bus, "message", 1, payload={"text": "general", "message_thread_id": None})
+    events = bus.drain(None)[1]
+
+    p = build_predicate(chat_id=1, message_thread_id=10)
+    assert p(events[0]) is True
+    assert p(events[1]) is False
+    assert p(events[2]) is False
+
+
 async def _wait(bus, pred, timeout: float = 2):
     return await asyncio.wait_for(bus.wait(pred, timeout=timeout, lookback_seconds=60), 3)

@@ -8,17 +8,20 @@ from __future__ import annotations
 import shlex
 
 from mcp.server.mcpserver import Context, MCPServer
+from mcp.types import ToolAnnotations
 
 from ..errors import INTERNAL, McpError
 from ..files import media_info
 from .common import ServerState, access_for, require_chat, resolve_chat_id, wrap_errors
 
+_READ_ONLY = ToolAnnotations(read_only_hint=True)
+
 
 def register(mcp: MCPServer[ServerState]) -> None:
-    @mcp.tool()
+    @mcp.tool(annotations=_READ_ONLY)
     @wrap_errors
     async def get_chat(ctx: Context[ServerState], chat_id: int | str, account: str | None = None) -> dict:
-        """获取聊天完整资料(标题、用户名、类型、描述、成员数等)。"""
+        """获取聊天资料(标题、用户名、类型、描述、成员数、is_forum/has_forum_sidebar 等)。"""
         state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
@@ -26,7 +29,7 @@ def register(mcp: MCPServer[ServerState]) -> None:
         require_chat(access, chat_id)
         return await client.get_chat(chat_id)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_READ_ONLY)
     @wrap_errors
     async def get_chat_history(
         ctx: Context[ServerState],
@@ -43,7 +46,7 @@ def register(mcp: MCPServer[ServerState]) -> None:
         require_chat(access, chat_id)
         return await client.get_chat_history(chat_id, limit=limit, offset_id=offset_id)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_READ_ONLY)
     @wrap_errors
     async def get_messages(
         ctx: Context[ServerState],
@@ -59,7 +62,7 @@ def register(mcp: MCPServer[ServerState]) -> None:
         require_chat(access, chat_id)
         return await client.get_messages(chat_id, message_ids)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_READ_ONLY)
     @wrap_errors
     async def get_dialogs(ctx: Context[ServerState], account: str | None = None) -> dict:
         """列出所有会话,仅返回白名单内的聊天。"""
@@ -68,24 +71,25 @@ def register(mcp: MCPServer[ServerState]) -> None:
         access = access_for(state, account)
         return await client.get_dialogs(access.ids())
 
-    @mcp.tool()
+    @mcp.tool(annotations=_READ_ONLY)
     @wrap_errors
     async def search_messages(
         ctx: Context[ServerState],
         chat_id: int | str,
         query: str,
         limit: int = 20,
+        message_thread_id: int | None = None,
         account: str | None = None,
     ) -> dict:
-        """在聊天内搜索消息(按相关性,新→旧)。"""
+        """在聊天内搜索消息(按相关性,新→旧)。message_thread_id 可限定论坛群话题。"""
         state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
-        return await client.search_messages(chat_id, query, limit=limit)
+        return await client.search_messages(chat_id, query, limit=limit, message_thread_id=message_thread_id)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_READ_ONLY)
     @wrap_errors
     async def get_chat_members_count(ctx: Context[ServerState], chat_id: int | str, account: str | None = None) -> dict:
         """群/频道成员数(join/leave 测试后断言成员数变化)。"""
@@ -105,8 +109,7 @@ def register(mcp: MCPServer[ServerState]) -> None:
         path: str | None = None,
         account: str | None = None,
     ) -> dict:
-        """下载消息中的媒体到本地路径(默认 downloads/<chat_id>/<message_id>),返回绝对路径供进一步读取。
-        远程客户端拿不到服务器本地文件:远程使用请用 get_media_url 生成签名下载 URL。"""
+        """下载消息媒体到本地(默认 downloads/<chat_id>/<message_id>);远程客户端请用 get_media_url。"""
         state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
@@ -114,7 +117,7 @@ def register(mcp: MCPServer[ServerState]) -> None:
         require_chat(access, chat_id)
         return await client.download_media(chat_id, message_id, path)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_READ_ONLY)
     @wrap_errors
     async def get_media_url(
         ctx: Context[ServerState],
@@ -122,10 +125,7 @@ def register(mcp: MCPServer[ServerState]) -> None:
         message_id: int,
         account: str | None = None,
     ) -> dict:
-        """生成消息媒体的短时效签名下载 URL(远程客户端经 HTTP 直接拉取,支持 Range 断点续传)。
-
-        返回的 url 可直接 `curl -o <file_name> '<url>'` 下载;过期后重新调用本工具即可。
-        URL 绑定账号/聊天/消息,泄露窗口仅限 expires_in 秒。"""
+        """生成短时效签名下载 URL(支持 HTTP Range),供远程客户端直接拉取消息媒体。"""
         state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)

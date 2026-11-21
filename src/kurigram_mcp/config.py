@@ -22,10 +22,39 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
-from .errors import ACCOUNT_NOT_FOUND, SESSION_INVALID, McpError
+from .errors import ACCOUNT_NOT_FOUND, INTERNAL, SESSION_INVALID, McpError
 
 # 隐式账号名:顶层 api_id/api_hash 对应的旧式单账号配置(setup 生成)
 DEFAULT_ACCOUNT = "default"
+
+# 可选工具组(按领域拆分,支持 --toolsets / TOOLSETS / config.yaml 按需启停)
+VALID_TOOLSETS: tuple[str, ...] = ("core", "stickers", "forum", "extras", "raw")
+
+
+def parse_toolsets(raw: str | None) -> tuple[str, ...]:
+    """解析工具组配置:'all' 或空字符串启用全部;逗号分隔按顺序去重并校验合法性。"""
+    if not raw or raw.strip().lower() == "all":
+        return VALID_TOOLSETS
+    chosen: list[str] = []
+    unknown: list[str] = []
+    for part in raw.split(","):
+        name = part.strip().lower()
+        if not name:
+            continue
+        if name == "all":
+            return VALID_TOOLSETS
+        if name not in VALID_TOOLSETS:
+            unknown.append(name)
+        elif name not in chosen:
+            chosen.append(name)
+    if unknown:
+        raise McpError(
+            INTERNAL,
+            f"未知的 toolset: {', '.join(unknown)}(支持: {', '.join(VALID_TOOLSETS)} 或 all)",
+        )
+    if not chosen:
+        return VALID_TOOLSETS
+    return tuple(chosen)
 
 
 class MeSnapshot(BaseModel):
@@ -112,6 +141,8 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8765
     auth_token: str | None = None
+    # 启用的工具组(逗号分隔: core,stickers,forum,extras,raw 或 all)
+    toolsets: str = "all"
     # 对外可访问的基础 URL(如 Cloudflare tunnel 域名);留空按 host:port 推导
     public_base_url: str | None = None
     # 签名文件 URL 的有效期(秒)

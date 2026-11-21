@@ -1,13 +1,17 @@
-"""kurigram 2.2.26 API 兼容性回归测试。
+"""kurigram 2.2.26/2.2.27 API 兼容性回归测试。
 
-覆盖 2.2.26 带来的三类破坏性变更(违反其中任何一条都会静默降级或启动失败):
+覆盖 2.2.26/2.2.27 带来的破坏性变更与关键特性(违反会静默降级或启动失败):
 1. proxy 只接受冻结 dataclass,裸 dict 不再是客户端接受的形态;
-2. reply_to_message_id / get_chat_history(offset_id=) 等平铺参数已弃用;
-3. MessageReactionUpdated.new_reaction 是列表,按单对象读取会永远得到 None。
+2. reply_to_message_id / get_chat_history(offset_id=) 等平铺参数已弃用
+   (2.2.27 已从 send_media_group 彻底移除旧平铺参数);
+3. MessageReactionUpdated.new_reaction 是列表,按单对象读取会永远得到 None;
+4. 2.2.27: kurigram[fast] 切换至 kuricrypt(Rust)、RPCError.value 拆分为
+   parameter/raw、TextTonAddress 富文本与 copy_text 字符串直传。
 """
 
 from __future__ import annotations
 
+import inspect
 import types
 
 import pytest
@@ -74,6 +78,21 @@ class RecordingRaw:
     async def send_media_group(self, chat_id, media, **kw):
         self.calls.append(("send_media_group", kw))
         return [self._message]
+
+    async def send_poll(self, chat_id, question, options, **kw):
+        return self._record("send_poll", **kw)
+
+    async def forward_messages(self, chat_id, from_chat_id, message_ids, **kw):
+        self.calls.append(("forward_messages", kw))
+        return [self._message]
+
+    def search_messages(self, chat_id, query, **kw):
+        self.calls.append(("search_messages", kw))
+
+        async def gen():
+            yield _fake_message()
+
+        return gen()
 
     def get_chat_history(self, chat_id, **kw):
         self.calls.append(("get_chat_history", kw))
@@ -337,3 +356,79 @@ async def test_send_rich_message_flags() -> None:
     await _client(raw).send_rich_message(1, "x", is_rtl=True, skip_entity_detection=True)
     rich = raw.calls[0][1]["rich_message"]
     assert rich.is_rtl is True and rich.skip_entity_detection is True
+
+
+# ---------- 5. kurigram 2.2.27 专项回归 ----------
+
+
+def test_kuricrypt_crypto_backend_active() -> None:
+    """kurigram[fast] 在 2.2.27 将加密后端从 tgcrypto 切换为 kuricrypt(Rust)。"""
+    from pyrogram.crypto import aes
+
+    backend = getattr(aes, "_crypto_backend", None)
+    assert backend is not None and backend.__name__ == "kuricrypt"
+
+
+def test_send_media_group_removed_deprecated_reply_params() -> None:
+    """2.2.27 已从 send_media_group 彻底移除旧平铺回复参数,仅保留 reply_parameters。"""
+    params = inspect.signature(Client.send_media_group).parameters
+    assert "reply_parameters" in params
+    assert "reply_to_message_id" not in params
+
+
+def test_flood_wait_parameter_and_value_property() -> None:
+    """2.2.27 将 RPCError.value 拆分为 parameter/raw 并保留 value property。"""
+    from pyrogram.errors import FloodWait
+
+    from kurigram_mcp.errors import FLOOD_WAIT, to_mcp_error
+
+    fw = FloodWait(15, rpc_name="messages.SendMessage")
+    assert fw.parameter == 15 and fw.value == 15
+    err = to_mcp_error(fw)
+    assert err.code == FLOOD_WAIT
+    assert err.details.get("seconds") == 15
+
+
+def test_rich_text_ton_address_and_copy_text_str() -> None:
+    """2.2.27 新增 Layer 230 TextTonAddress 富文本及 InlineKeyboardButton(copy_text=str)。"""
+    from pyrogram.raw.types import TextPlain, TextTonAddress
+    from pyrogram.types import InlineKeyboardButton
+
+    from kurigram_mcp.telegram.views import _button_view, _rich_text
+
+    addr = "EQD1234567890abcdef"
+    assert _rich_text(TextTonAddress(text=TextPlain(text=addr))) == addr
+
+    btn = InlineKeyboardButton("Copy", copy_text=addr)
+    assert _button_view(btn) == {"text": "Copy", "copy_text": addr}
+
+
+@pytest.mark.asyncio
+async def test_message_thread_id_passthrough() -> None:
+    """所有支持论坛话题的发送/转发/搜索方法应原样透传 message_thread_id。"""
+    raw = RecordingRaw()
+    tc = _client(raw)
+
+    await tc.send_message(1, "x", message_thread_id=101)
+    await tc.send_rich_message(1, "# hi", message_thread_id=102)
+    await tc.send_photo(1, "p.jpg", message_thread_id=103)
+    await tc.send_document(1, "d.bin", message_thread_id=104)
+    await tc.send_voice(1, "v.ogg", message_thread_id=105)
+    await tc.send_sticker(1, "s.webp", message_thread_id=106)
+    await tc.send_media_group(1, ["p.jpg"], message_thread_id=107)
+    await tc.send_poll(1, "q?", ["a", "b"], message_thread_id=108)
+    await tc.forward_message(1, 2, 9, message_thread_id=109)
+    await tc.search_messages(1, "hi", message_thread_id=110)
+
+    assert [(name, kw["message_thread_id"]) for name, kw in raw.calls] == [
+        ("send_message", 101),
+        ("send_rich_message", 102),
+        ("send_photo", 103),
+        ("send_document", 104),
+        ("send_voice", 105),
+        ("send_sticker", 106),
+        ("send_media_group", 107),
+        ("send_poll", 108),
+        ("forward_messages", 109),
+        ("search_messages", 110),
+    ]

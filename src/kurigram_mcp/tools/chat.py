@@ -7,9 +7,11 @@ chat_id 参数统一支持:数字 id(含群/频道负 ID)、@username、me(Saved
 from __future__ import annotations
 
 import secrets
+from typing import Literal
 from urllib.parse import quote
 
 from mcp.server.mcpserver import Context, MCPServer
+from mcp.types import ToolAnnotations
 
 from ..errors import INTERNAL, McpError
 from ..files import sanitize_name
@@ -21,16 +23,35 @@ from .common import (
     wrap_errors,
 )
 
+ParseModeArg = Literal["none", "markdown", "html"]
+RichFormatArg = Literal["markdown", "html"]
+ChatActionArg = Literal[
+    "typing",
+    "upload_photo",
+    "record_video",
+    "upload_video",
+    "record_audio",
+    "upload_audio",
+    "upload_document",
+    "find_location",
+    "record_video_note",
+    "upload_video_note",
+    "playing",
+    "choose_contact",
+    "speaking",
+    "import_history",
+    "choose_sticker",
+    "cancel",
+]
+_DESTRUCTIVE = ToolAnnotations(destructive_hint=True)
+
 
 def register(mcp: MCPServer[ServerState]) -> None:
     @mcp.tool()
     @wrap_errors
     async def create_upload_url(ctx: Context[ServerState], file_name: str) -> dict:
-        """生成一次性上传 URL:远程客户端 `curl -T <本地文件> '<url>'` 把文件推到服务器暂存区,
-        再把返回的 media(upload://<uid>/<name>)作为 media 参数传给
-        send_photo/send_document/send_voice/send_sticker/send_media_group/send_rich_message。
-
-        url 为一次性(重复 PUT 返回 409);upload:// 引用可复用直到保留期到期被清理。"""
+        """生成一次性上传 URL(`curl -T <文件> '<url>'`),
+        返回 upload://<uid>/<name> 供各类发送工具的 media/sticker 参数使用。"""
         state = ctx.request_context.lifespan_context
         gateway = state.files
         if gateway is None:
@@ -54,19 +75,23 @@ def register(mcp: MCPServer[ServerState]) -> None:
         chat_id: int | str,
         text: str,
         reply_to_message_id: int | None = None,
-        parse_mode: str = "none",
+        parse_mode: ParseModeArg = "none",
+        message_thread_id: int | None = None,
         account: str | None = None,
     ) -> dict:
-        """发送文本消息。
-        parse_mode: none | markdown | html(如 <b>粗体</b>、<tg-spoiler>剧透</tg-spoiler>、<i>斜体</i>)。
-        仅文本;发送投票请用 send_poll(返回里的 poll 字段仅投票消息才有)。
-        account:操作账号(缺省默认账号,下同)。"""
+        """发送文本消息。message_thread_id:论坛话题 ID。"""
         state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
-        return await client.send_message(chat_id, text, reply_to_message_id=reply_to_message_id, parse_mode=parse_mode)
+        return await client.send_message(
+            chat_id,
+            text,
+            reply_to_message_id=reply_to_message_id,
+            parse_mode=parse_mode,
+            message_thread_id=message_thread_id,
+        )
 
     @mcp.tool()
     @wrap_errors
@@ -74,32 +99,18 @@ def register(mcp: MCPServer[ServerState]) -> None:
         ctx: Context[ServerState],
         chat_id: int | str,
         content: str,
-        format: str = "markdown",
+        format: RichFormatArg = "markdown",
         media: list[dict] | None = None,
         reply_to_message_id: int | None = None,
         is_rtl: bool = False,
         skip_entity_detection: bool = False,
+        message_thread_id: int | None = None,
         account: str | None = None,
     ) -> dict:
-        """发送富消息(Telegram rich message:标题/列表/表格/折叠块/引用/公式/按钮行等),
-        用户账号与 bot 均可发送。format: markdown(默认)| html,
-        语法见 https://core.telegram.org/bots/api#rich-message-formatting-options
-
-        markdown 速查:`# 标题`、`- [x] 任务`、`| 表 | 格 |`、`$$E=mc^2$$`、
-        `<details><summary>标题</summary>内容</details>`;
-        html 额外支持 `<tg-button-row><tg-button type="callback_data" data="x">按钮</tg-button></tg-button-row>`、
-        `<aside>`、`<tg-map lat="" long="" zoom=""/>`。
-
-        media:内容里用 tg://photo?id=<id> 等链接引用的媒体,每项
-        {"id", "media"(本地路径/file_id/URL/upload:// 引用,见 create_upload_url),
-        "type"(可选 photo/video/audio/document/animation/voice,
-        缺省按扩展名推断)};http(s) URL 图片直接用 ![](url),无需 media。
-
-        返回的 rich 字段即服务器解析后的结构;若 rich 为 null(服务器只回了简短确认),
-        用 get_messages 读回验证渲染结果。
-        限制:32768 字符、500 块、16 层嵌套、50 个媒体。
-        实测:非 Premium 用户账号发送返回 RICH_MESSAGE_UNSUPPORTED;用户账号不能带
-        callback_data 按钮(BUTTON_TYPE_INVALID),url/copy_text 按钮可用。"""
+        """发送富消息(标题/列表/表格/折叠块/公式/按钮行)。
+        media: [{id:str, media(路径/file_id/URL/upload://),
+        type?(photo|video|audio|document|animation|voice,缺省按扩展名推断)}] 供 tg://<type>?id=<id> 引用。
+        若返回 rich 为 null 用 get_messages 回读;非 Premium 账号会报 RICH_MESSAGE_UNSUPPORTED。"""
         state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
@@ -113,6 +124,7 @@ def register(mcp: MCPServer[ServerState]) -> None:
             reply_to_message_id=reply_to_message_id,
             is_rtl=is_rtl,
             skip_entity_detection=skip_entity_detection,
+            message_thread_id=message_thread_id,
         )
 
     @mcp.tool()
@@ -122,14 +134,12 @@ def register(mcp: MCPServer[ServerState]) -> None:
         chat_id: int | str,
         media: str,
         caption: str | None = None,
-        parse_mode: str = "none",
+        parse_mode: ParseModeArg = "none",
         reply_to_message_id: int | None = None,
+        message_thread_id: int | None = None,
         account: str | None = None,
     ) -> dict:
-        """发送图片。media:本地路径(服务器侧可访问)| Telegram file_id | http(s) URL
-        | upload:// 引用(create_upload_url 远程上传所得);
-        媒体类型按扩展名自动识别(图片→photo)。
-        caption 会出现在返回的 text 字段。parse_mode: none | markdown | html(作用于 caption)。"""
+        """发送图片。media:本地路径|file_id|URL|upload://。"""
         state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
@@ -141,6 +151,7 @@ def register(mcp: MCPServer[ServerState]) -> None:
             caption=caption,
             parse_mode=parse_mode,
             reply_to_message_id=reply_to_message_id,
+            message_thread_id=message_thread_id,
         )
 
     @mcp.tool()
@@ -150,14 +161,12 @@ def register(mcp: MCPServer[ServerState]) -> None:
         chat_id: int | str,
         media: str,
         caption: str | None = None,
-        parse_mode: str = "none",
+        parse_mode: ParseModeArg = "none",
         reply_to_message_id: int | None = None,
+        message_thread_id: int | None = None,
         account: str | None = None,
     ) -> dict:
-        """发送文件。media:本地路径(服务器侧可访问)| Telegram file_id | http(s) URL
-        | upload:// 引用(create_upload_url 远程上传所得);
-        媒体类型按扩展名自动识别(如 .ogg→voice、.webp→sticker)。caption 会出现在返回的 text 字段。
-        parse_mode: none | markdown | html(作用于 caption)。"""
+        """发送文件。media:本地路径|file_id|URL|upload://。"""
         state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
@@ -169,6 +178,7 @@ def register(mcp: MCPServer[ServerState]) -> None:
             caption=caption,
             parse_mode=parse_mode,
             reply_to_message_id=reply_to_message_id,
+            message_thread_id=message_thread_id,
         )
 
     @mcp.tool()
@@ -178,14 +188,12 @@ def register(mcp: MCPServer[ServerState]) -> None:
         chat_id: int | str,
         media: str,
         caption: str | None = None,
-        parse_mode: str = "none",
+        parse_mode: ParseModeArg = "none",
         reply_to_message_id: int | None = None,
+        message_thread_id: int | None = None,
         account: str | None = None,
     ) -> dict:
-        """发送语音(voice note)。media:本地路径(服务器侧可访问)| Telegram file_id | http(s) URL
-        | upload:// 引用(create_upload_url 远程上传所得);建议用 .ogg/.mp3 音频文件。
-        caption 会出现在返回的 text 字段。parse_mode: none | markdown | html(作用于 caption)。
-        """
+        """发送语音。media:本地路径|file_id|URL|upload://(建议 .ogg/.mp3)。"""
         state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
@@ -197,6 +205,7 @@ def register(mcp: MCPServer[ServerState]) -> None:
             caption=caption,
             parse_mode=parse_mode,
             reply_to_message_id=reply_to_message_id,
+            message_thread_id=message_thread_id,
         )
 
     @mcp.tool()
@@ -206,16 +215,21 @@ def register(mcp: MCPServer[ServerState]) -> None:
         chat_id: int | str,
         media: str,
         reply_to_message_id: int | None = None,
+        message_thread_id: int | None = None,
         account: str | None = None,
     ) -> dict:
-        """发送贴纸。media:本地 .webp 路径 | Telegram file_id | http(s) URL
-        | upload:// 引用(create_upload_url 远程上传所得)。"""
+        """发送贴纸。media:本地 .webp/.tgs/.webm 路径|file_id|URL|upload://。"""
         state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
-        return await client.send_sticker(chat_id, media, reply_to_message_id=reply_to_message_id)
+        return await client.send_sticker(
+            chat_id,
+            media,
+            reply_to_message_id=reply_to_message_id,
+            message_thread_id=message_thread_id,
+        )
 
     @mcp.tool()
     @wrap_errors
@@ -224,17 +238,21 @@ def register(mcp: MCPServer[ServerState]) -> None:
         chat_id: int | str,
         media: list,
         reply_to_message_id: int | None = None,
+        message_thread_id: int | None = None,
         account: str | None = None,
     ) -> dict:
-        """发送相册(媒体组)。media 条目:字符串(路径/file_id/URL/upload:// 引用)或
-        {"media": ..., "type": "photo"|"document", "caption": ...};
-        upload:// 引用来自 create_upload_url 远程上传。"""
+        """发送相册(媒体组)。media 条目:字符串或 {media, type?(photo/document/video/audio), caption?, parse_mode?}。"""
         state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
         chat_id = await resolve_chat_id(client, chat_id)
         require_chat(access, chat_id)
-        return await client.send_media_group(chat_id, media, reply_to_message_id=reply_to_message_id)
+        return await client.send_media_group(
+            chat_id,
+            media,
+            reply_to_message_id=reply_to_message_id,
+            message_thread_id=message_thread_id,
+        )
 
     @mcp.tool()
     @wrap_errors
@@ -250,10 +268,10 @@ def register(mcp: MCPServer[ServerState]) -> None:
         correct_option_id: int | None = None,
         explanation: str | None = None,
         open_period: int | None = None,
+        message_thread_id: int | None = None,
         account: str | None = None,
     ) -> dict:
-        """发送投票/测验(测试 bot 的 poll 处理)。options 为选项文本列表;
-        is_quiz 时可用 correct_option_id(0 基)+ explanation。"""
+        """发送投票/测验。is_quiz=true 时需设 correct_option_id(0基)且与多选互斥;open_period 单位秒。"""
         state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
@@ -270,6 +288,7 @@ def register(mcp: MCPServer[ServerState]) -> None:
             correct_option_id=correct_option_id,
             explanation=explanation,
             open_period=open_period,
+            message_thread_id=message_thread_id,
         )
 
     @mcp.tool()
@@ -281,7 +300,7 @@ def register(mcp: MCPServer[ServerState]) -> None:
         options: int | list[int],
         account: str | None = None,
     ) -> dict:
-        """给投票/测验投票(触发 bot 的 poll_answer 更新)。options:选项下标或下标列表。"""
+        """给投票/测验投票(触发 bot 的 poll_answer 更新)。options:0 基选项下标或下标列表。"""
         state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
@@ -296,10 +315,10 @@ def register(mcp: MCPServer[ServerState]) -> None:
         chat_id: int | str,
         from_chat_id: int | str,
         message_ids: int | list[int],
+        message_thread_id: int | None = None,
         account: str | None = None,
     ) -> dict:
-        """转发消息(如把频道文章转发给 bot,测 bot 的转发处理)。
-        message_ids:单条或列表;from_chat_id 与 chat_id 都需在白名单。"""
+        """转发消息(message_ids 单条或列表;from_chat_id 与 chat_id 均需在白名单)。"""
         state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
@@ -307,14 +326,12 @@ def register(mcp: MCPServer[ServerState]) -> None:
         from_chat_id = await resolve_chat_id(client, from_chat_id)
         require_chat(access, chat_id)
         require_chat(access, from_chat_id)
-        return await client.forward_message(chat_id, from_chat_id, message_ids)
+        return await client.forward_message(chat_id, from_chat_id, message_ids, message_thread_id=message_thread_id)
 
     @mcp.tool()
     @wrap_errors
     async def join_chat(ctx: Context[ServerState], chat_id: int | str, account: str | None = None) -> dict:
-        """加入群/频道(触发 bot 的 new_chat_members 更新)。
-        chat_id 支持数字 id、@username、邀请链接(t.me/+xxx / t.me/joinchat/xxx)。
-        邀请链接加入的新群不在白名单,加入后需将其加入白名单才能操作。"""
+        """加入群/频道(支持数字 id/@username/邀请链接 t.me/+xxx)。"""
         state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
@@ -327,7 +344,7 @@ def register(mcp: MCPServer[ServerState]) -> None:
             require_chat(access, chat_id)
         return await client.join_chat(chat_id)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_DESTRUCTIVE)
     @wrap_errors
     async def leave_chat(ctx: Context[ServerState], chat_id: int | str, account: str | None = None) -> dict:
         """退出群/频道(触发 bot 的 left_chat_member 更新)。"""
@@ -355,7 +372,7 @@ def register(mcp: MCPServer[ServerState]) -> None:
         require_chat(access, chat_id)
         return await client.edit_message(chat_id, message_id, text)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_DESTRUCTIVE)
     @wrap_errors
     async def delete_message(
         ctx: Context[ServerState], chat_id: int | str, message_id: int, account: str | None = None
@@ -371,9 +388,12 @@ def register(mcp: MCPServer[ServerState]) -> None:
     @mcp.tool()
     @wrap_errors
     async def send_chat_action(
-        ctx: Context[ServerState], chat_id: int | str, action: str = "typing", account: str | None = None
+        ctx: Context[ServerState],
+        chat_id: int | str,
+        action: ChatActionArg = "typing",
+        account: str | None = None,
     ) -> dict:
-        """发送聊天动作(TYPING/UPLOAD_PHOTO 等,MTProto 层对 bot 可见)。"""
+        """发送聊天状态动作(MTProto 层对 bot 可见)。"""
         state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)
@@ -393,18 +413,8 @@ def register(mcp: MCPServer[ServerState]) -> None:
         data: str | None = None,
         account: str | None = None,
     ) -> dict:
-        """模拟用户点击 bot 消息上的 inline 按钮(触发 callback_query)。
-
-        注意:本工具模拟点击消息上的按钮;向 bot 的 inline mode 发起查询
-        请用 send_inline_query。
-        也可点击富消息按钮(get_messages 返回的 rich.buttons,guest bot AI 回复等)。
-        定位优先级:data(callback_data 原文,可从 get_messages 的 reply_markup /
-        rich.buttons 里拿到)> button_text(按钮文本)> row_index/col_index;
-        data/text 先搜 inline 键盘再搜 rich 按钮,row/col 在 inline 键盘存在时
-        按其寻址,否则按 rich.buttons。
-        url 按钮返回目标 URL;点击后 bot 的行为(编辑消息/新消息)
-        可用 wait_for_update 或 get_chat_history 观察。
-        """
+        """点击消息上的 inline 或富消息按钮(触发 callback_query)。
+        定位优先级:data(callback_data)> button_text > row_index/col_index;url/copy_text 按钮直接返回值。"""
         state = ctx.request_context.lifespan_context
         client = state.resolve(account)
         access = access_for(state, account)

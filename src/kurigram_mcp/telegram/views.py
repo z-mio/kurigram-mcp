@@ -56,6 +56,8 @@ def chat_view(chat: Any) -> dict:
         "first_name",
         "last_name",
         "is_bot",
+        "is_forum",
+        "has_forum_sidebar",
         "is_restricted",
         "description",
         "members_count",
@@ -87,6 +89,20 @@ def user_ref(user: Any) -> dict | None:
         "username": getattr(user, "username", None),
         "first_name": getattr(user, "first_name", None),
         "is_bot": bool(getattr(user, "is_bot", False)),
+    }
+
+
+def chat_ref(chat: Any) -> dict | None:
+    """消息中的频道/群发送者摘要(sender_chat,如匿名管理员或频道发言)。"""
+    if chat is None:
+        return None
+    chat_type = getattr(chat, "type", None)
+    chat_type = getattr(chat_type, "value", chat_type)
+    return {
+        "id": getattr(chat, "id", None),
+        "title": getattr(chat, "title", None),
+        "username": getattr(chat, "username", None),
+        "type": str(chat_type) if chat_type is not None else None,
     }
 
 
@@ -195,6 +211,116 @@ def inline_result_view(result: Any) -> dict:
     if send_message is not None:
         out["message"] = getattr(send_message, "message", None)
     return out
+
+
+def _enum_val(val: Any) -> str | None:
+    if val is None:
+        return None
+    v = getattr(val, "value", None)
+    if v is not None:
+        return str(v)
+    name = getattr(val, "name", None)
+    return str(name).lower() if name is not None else str(val)
+
+
+def sticker_view(sticker: Any) -> dict | None:
+    """pyrogram Sticker -> 扁平 dict。"""
+    if sticker is None:
+        return None
+    mp = getattr(sticker, "mask_position", None)
+    out: dict = {
+        "file_id": getattr(sticker, "file_id", None),
+        "file_unique_id": getattr(sticker, "file_unique_id", None),
+        "type": _enum_val(getattr(sticker, "type", None)),
+        "width": getattr(sticker, "width", None),
+        "height": getattr(sticker, "height", None),
+        "is_animated": bool(getattr(sticker, "is_animated", False)),
+        "is_video": bool(getattr(sticker, "is_video", False)),
+        "emoji": getattr(sticker, "emoji", None),
+        "set_name": getattr(sticker, "set_name", None),
+        "custom_emoji_id": getattr(sticker, "custom_emoji_id", None),
+        "file_name": getattr(sticker, "file_name", None),
+        "mime_type": getattr(sticker, "mime_type", None),
+        "file_size": getattr(sticker, "file_size", None),
+        "needs_repainting": getattr(sticker, "needs_repainting", None),
+    }
+    if mp is not None:
+        out["mask_position"] = {
+            "point": _enum_val(getattr(mp, "point", None)),
+            "x_shift": getattr(mp, "x_shift", None),
+            "y_shift": getattr(mp, "y_shift", None),
+            "scale": getattr(mp, "scale", None),
+        }
+    return out
+
+
+def sticker_set_view(ss: Any, *, include_stickers: bool = True) -> dict | None:
+    """pyrogram StickerSet -> 扁平 dict。"""
+    if ss is None:
+        return None
+    stickers = getattr(ss, "stickers", None)
+    out: dict = {
+        "id": getattr(ss, "id", None),
+        "name": getattr(ss, "name", None),
+        "title": getattr(ss, "title", None),
+        "sticker_type": _enum_val(getattr(ss, "sticker_type", None)),
+        "count": len(stickers) if isinstance(stickers, list) else None,
+        "is_owned": getattr(ss, "is_owned", None),
+        "is_installed": getattr(ss, "is_installed", None),
+        "is_archived": getattr(ss, "is_archived", None),
+        "is_official": getattr(ss, "is_official", None),
+        "needs_repainting": getattr(ss, "needs_repainting", None),
+    }
+    if include_stickers and isinstance(stickers, list):
+        out["stickers"] = [sticker_view(s) for s in stickers]
+    return out
+
+
+def forum_topic_view(topic: Any) -> dict | None:
+    """pyrogram ForumTopic -> 扁平 dict。"""
+    if topic is None:
+        return None
+    top_msg = getattr(topic, "top_message", None)
+    return {
+        "id": getattr(topic, "id", None),
+        "name": getattr(topic, "name", None),
+        "date": _iso(getattr(topic, "date", None)),
+        "icon_color": getattr(topic, "icon_color", None),
+        "icon_custom_emoji_id": getattr(topic, "icon_custom_emoji_id", None),
+        "is_my": getattr(topic, "is_my", None),
+        "is_closed": getattr(topic, "is_closed", None),
+        "is_pinned": getattr(topic, "is_pinned", None),
+        "is_hidden": getattr(topic, "is_hidden", None),
+        "unread_count": getattr(topic, "unread_count", None),
+        "top_message_id": getattr(top_msg, "id", None),
+    }
+
+
+def checklist_view(checklist: Any) -> dict | None:
+    """pyrogram Checklist -> 扁平 dict。"""
+    if checklist is None:
+        return None
+    tasks = [
+        {
+            "id": getattr(t, "id", None),
+            "text": getattr(t, "text", None),
+            "completed": getattr(t, "completion_date", None) is not None,
+        }
+        for t in getattr(checklist, "tasks", None) or []
+    ]
+    return {
+        "title": getattr(checklist, "title", None),
+        "tasks": tasks,
+        "others_can_add_tasks": getattr(checklist, "others_can_add_tasks", None),
+        "others_can_mark_tasks_as_done": getattr(checklist, "others_can_mark_tasks_as_done", None),
+    }
+
+
+def dice_view(dice: Any) -> dict | None:
+    """pyrogram Dice -> 扁平 dict。"""
+    if dice is None:
+        return None
+    return {"emoji": getattr(dice, "emoji", None), "value": getattr(dice, "value", None)}
 
 
 def _iso(ts: datetime | None) -> str | None:
@@ -749,11 +875,13 @@ def message_view(msg: Any) -> dict:
         # 临时消息(ephemeral)id=0,真实 id 在 ephemeral_message_id
         "ephemeral_message_id": getattr(msg, "ephemeral_message_id", None),
         "chat_id": msg.chat.id if getattr(msg, "chat", None) else None,
+        "message_thread_id": getattr(msg, "message_thread_id", None),
         "date": _iso(getattr(msg, "date", None)),
         "edit_date": _iso(getattr(msg, "edit_date", None)),
         "out": out,
         "is_outgoing": out,  # out 的语义别名,便于理解
         "from": user_ref(from_user),
+        "sender_chat": chat_ref(getattr(msg, "sender_chat", None)),
         "text": getattr(msg, "text", None) or getattr(msg, "caption", None),
         "caption": getattr(msg, "caption", None),  # 媒体消息的说明文字(text 同时回显)
         "rich": _rich_message_view(raw_msg),  # 富消息内容(guest bot AI 回复等)
@@ -762,6 +890,8 @@ def message_view(msg: Any) -> dict:
         "media": str(msg.media.value) if getattr(msg, "media", None) else None,
         "media_group_id": getattr(msg, "media_group_id", None),
         "poll": poll_view(getattr(msg, "poll", None)),
+        "checklist": checklist_view(getattr(msg, "checklist", None)),
+        "dice": dice_view(getattr(msg, "dice", None)),
         "reply_to_message_id": getattr(msg, "reply_to_message_id", None),
         "service": str(msg.service.value) if getattr(msg, "service", None) else None,
         "reply_markup": markup_view(getattr(msg, "reply_markup", None)),

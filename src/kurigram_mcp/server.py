@@ -17,7 +17,7 @@ from pyrogram.types import User
 
 from . import __version__
 from .access import AccessControl
-from .config import Settings
+from .config import Settings, parse_toolsets
 from .errors import ACCOUNT_NOT_FOUND, McpError
 from .files import FileGateway, default_base_url
 from .telegram.client import TelegramClient
@@ -50,14 +50,29 @@ def _auth_settings() -> AuthSettings:
     )
 
 
+_SERVER_INSTRUCTIONS = (
+    "全局约定:\n"
+    "- chat_id 统一支持数字 ID(含群/频道负 ID)、@username 或 'me'(Saved Messages);聊天操作均强制白名单。\n"
+    "- account 为可选账号名(可用值见 mcp_get_server_info;省略用默认账号)。\n"
+    "- 聚合工具(stickers_query/stickers_manage/manage_forum_topics/send_extra/manage_message_extras)"
+    "描述中括号内的键均放进 params 字典。\n"
+    "- 远程文件传输:先 create_upload_url + HTTP PUT 上传拿到 upload://<uid>/<name>,再传给 media/sticker 参数。"
+)
+
+
 def build_server(
-    settings: Settings, accounts: list[str] | None = None, base_url: str | None = None
+    settings: Settings,
+    accounts: list[str] | None = None,
+    base_url: str | None = None,
+    toolsets: str | None = None,
 ) -> MCPServer[ServerState]:
     """accounts 为 None 时启动全部已注册账号;否则只启动指定账号列表。
 
     base_url 为签名文件 URL 的对外基址(缺省按 settings 推导;run_server 会按
     实际生效的 host/port 计算后传入)。
+    toolsets 控制注册的工具组(缺省取 settings.toolsets,支持 all 或逗号分隔)。
     """
+    enabled_toolsets = parse_toolsets(toolsets if toolsets is not None else settings.toolsets)
     gateway = FileGateway(
         auth_token=settings.auth_token,
         base_url=base_url or default_base_url(settings.public_base_url, settings.host, settings.port),
@@ -124,10 +139,11 @@ def build_server(
         name="kurigram-mcp",
         title="Kurigram MCP",
         description="MCP server for debugging Telegram bots via a user session (kurigram/pyrogram MTProto)",
+        instructions=_SERVER_INSTRUCTIONS,
         version=__version__,
         **kwargs,
     )
-    register_tools(mcp)
+    register_tools(mcp, toolsets=enabled_toolsets)
     gateway.register_routes(mcp)
     return mcp
 
@@ -156,6 +172,7 @@ def run_server(settings: Settings, accounts: list[str] | None = None, **override
         settings,
         accounts,
         base_url=default_base_url(overrides.get("public_url") or settings.public_base_url, host, port),
+        toolsets=overrides.get("toolsets"),
     )
     mcp.run(
         transport="streamable-http",

@@ -73,19 +73,24 @@ km run                   # 之后每个工具都可传 account="alice" / account
 - 旧式单账号配置 (顶层 `api_id`)即隐式账号 **`default`**。
 - 每账号 `--allowed-chat-ids` 覆盖全局白名单;未设置的账号回退全局 `allowed_chat_ids`。
 - `mcp_get_server_info` 列出所有已连接账号。
-- 短参数:`km run -a/--account -H/--host -p/--port -u/--public-url -s/--stateful`;
+- 短参数:`km run -a/--account -H/--host -p/--port -u/--public-url -t/--toolsets -s/--stateful`;
   `km session add/set -x/--proxy -c/--allowed-chat-ids`;`km -V/--version`。
 
-## 🧰 工具 (36 个)
+## 🧰 工具 (43 个,支持 `--toolsets` 按需启停)
 
-| 分组    | 工具                                                                                                                                                                                                                                                                         |
-|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 🧾 会话 | `whoami`、`mcp_get_server_info`                                                                                                                                                                                                                                              |
-| 📤 发送 | `send_message`、`send_rich_message`、`send_photo`、`send_document`、`send_voice`、`send_sticker`、`send_media_group`、`send_poll`、`vote_poll`、`forward_message`、`edit_message`、`delete_message`、`send_chat_action`、`start_bot`、`click_inline_button`、`send_reaction`、`send_inline_query`、`create_upload_url` |
-| 📥 读取 | `get_chat`、`get_chat_history`、`get_messages`、`get_dialogs`、`search_messages`、`get_chat_members_count`、`download_media`、`get_media_url`                                                                                                                               |
-| 👥 群   | `join_chat`、`leave_chat`                                                                                                                                                                                                                                                    |
-| ⏱️  事件 | `wait_for_update`(谓词含 `is_media` / `media_type`)、`drain_updates`                                                                                                                                                                                                         |
-| 🔬 深度 | `raw_invoke`、`list_raw_methods`、`get_raw_method_info`                                                                                                                                                                                                                      |
+| 分组 (toolset)      | 工具                                                                                                                                                                                                                                                                                            |
+|---------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 🧾 会话 (常驻)      | `whoami`、`mcp_get_server_info`                                                                                                                                                                                                                                                                 |
+| 📤 发送 (`core`)    | `send_message`、`send_rich_message`、`send_photo`、`send_document`、`send_voice`、`send_sticker`、`send_media_group`、`send_poll`、`vote_poll`、`forward_message`、`edit_message`、`delete_message`、`send_chat_action`、`start_bot`、`click_inline_button`、`send_reaction`、`send_inline_query`、`send_inline_bot_result`、`create_upload_url` |
+| 📥 读取 (`core`)    | `get_chat`、`get_chat_history`、`get_messages`、`get_dialogs`、`search_messages`、`get_chat_members_count`、`download_media`、`get_media_url`                                                                                                                                                   |
+| 👥 群 (`core`)      | `join_chat`、`leave_chat`                                                                                                                                                                                                                                                                       |
+| ⏱️ 事件 (`core`)    | `wait_for_update`、`expect_silent`、`drain_updates`、`probe_bot`                                                                                                                                                                                                                                |
+| 🎨 贴纸 (`stickers`) | `stickers_query`(8 种查询)、`stickers_manage`(20 种安装/收藏/贴纸包增删改)                                                                                                                                                                                                                       |
+| 💬 话题 (`forum`)   | `manage_forum_topics`(13 种论坛话题查询与管理)                                                                                                                                                                                                                                                  |
+| 🧩 扩展 (`extras`)  | `send_extra`(video/animation/audio/location/contact/dice/checklist)、`manage_message_extras`(pin/unpin/mark_checklist)                                                                                                                                                                          |
+| 🔬 深度 (`raw`)     | `raw_invoke`、`list_raw_methods`、`get_raw_method_info`                                                                                                                                                                                                                                         |
+
+> 通过 `km run --toolsets core,stickers`、环境变量 `TOOLSETS` 或 `config.yaml` 中的 `toolsets` 字段可按需精简暴露的工具组（默认 `all`）。
 
 ## 🔌 客户端接入
 
@@ -162,6 +167,7 @@ allowed_chat_ids: "123456789,me"   # 兜底白名单
 host: 127.0.0.1
 port: 8765
 auth_token: auto_generated_or_yours # Bearer 鉴权
+toolsets: all                       # 启用工具组: all 或逗号分隔 core,stickers,forum,extras,raw
 public_base_url: ""                 # 外网访问地址(如隧道域名);仅本机使用可不填,留空按 http://host:port 推导
 file_url_ttl_seconds: 900           # 签名文件 URL 有效期
 upload_max_bytes: 2147483648        # 单次上传上限(2 GiB)

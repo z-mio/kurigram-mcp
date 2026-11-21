@@ -292,12 +292,14 @@ class TelegramClient:
         text: str,
         reply_to_message_id: int | None = None,
         parse_mode: str = "none",
+        message_thread_id: int | None = None,
     ) -> dict:
         msg = await self.raw.send_message(
             chat_id,
             text,
             parse_mode=_parse_mode(parse_mode),
             reply_parameters=_reply(reply_to_message_id),
+            message_thread_id=message_thread_id,
         )
         return message_view(msg)
 
@@ -310,6 +312,7 @@ class TelegramClient:
         reply_to_message_id: int | None = None,
         is_rtl: bool = False,
         skip_entity_detection: bool = False,
+        message_thread_id: int | None = None,
     ) -> dict:
         """发送富消息(rich message:标题/列表/表格/折叠块/按钮行等)。format: markdown | html。
 
@@ -391,6 +394,7 @@ class TelegramClient:
             chat_id,
             rich_message=rich,
             reply_parameters=_reply(reply_to_message_id),
+            message_thread_id=message_thread_id,
         )
         if msg is None:
             raise McpError(INTERNAL, "send_rich_message 未返回消息")
@@ -403,6 +407,7 @@ class TelegramClient:
         caption: str | None = None,
         parse_mode: str = "none",
         reply_to_message_id: int | None = None,
+        message_thread_id: int | None = None,
     ) -> dict:
         media = resolve_media_ref(media, self.settings.uploads_dir)
         msg = await self.raw.send_photo(
@@ -411,6 +416,7 @@ class TelegramClient:
             caption=caption or "",
             parse_mode=_parse_mode(parse_mode),
             reply_parameters=_reply(reply_to_message_id),
+            message_thread_id=message_thread_id,
         )
         return message_view(msg)
 
@@ -421,6 +427,7 @@ class TelegramClient:
         caption: str | None = None,
         parse_mode: str = "none",
         reply_to_message_id: int | None = None,
+        message_thread_id: int | None = None,
     ) -> dict:
         media = resolve_media_ref(media, self.settings.uploads_dir)
         msg = await self.raw.send_document(
@@ -429,6 +436,7 @@ class TelegramClient:
             caption=caption or "",
             parse_mode=_parse_mode(parse_mode),
             reply_parameters=_reply(reply_to_message_id),
+            message_thread_id=message_thread_id,
         )
         return message_view(msg)
 
@@ -671,6 +679,7 @@ class TelegramClient:
         caption: str | None = None,
         parse_mode: str = "none",
         reply_to_message_id: int | None = None,
+        message_thread_id: int | None = None,
     ) -> dict:
         """发送语音。media:本地路径 | Telegram file_id | http(s) URL | upload:// 引用。"""
         media = resolve_media_ref(media, self.settings.uploads_dir)
@@ -680,13 +689,25 @@ class TelegramClient:
             caption=caption or "",
             parse_mode=_parse_mode(parse_mode),
             reply_parameters=_reply(reply_to_message_id),
+            message_thread_id=message_thread_id,
         )
         return message_view(msg)
 
-    async def send_sticker(self, chat_id: int, media: str, reply_to_message_id: int | None = None) -> dict:
+    async def send_sticker(
+        self,
+        chat_id: int,
+        media: str,
+        reply_to_message_id: int | None = None,
+        message_thread_id: int | None = None,
+    ) -> dict:
         """发送贴纸。media:本地 .webp 路径 | Telegram file_id | http(s) URL | upload:// 引用。"""
         media = resolve_media_ref(media, self.settings.uploads_dir)
-        msg = await self.raw.send_sticker(chat_id, media, reply_parameters=_reply(reply_to_message_id))
+        msg = await self.raw.send_sticker(
+            chat_id,
+            media,
+            reply_parameters=_reply(reply_to_message_id),
+            message_thread_id=message_thread_id,
+        )
         return message_view(msg)
 
     async def send_media_group(
@@ -694,6 +715,7 @@ class TelegramClient:
         chat_id: int,
         media: list,
         reply_to_message_id: int | None = None,
+        message_thread_id: int | None = None,
     ) -> dict:
         """发送相册(媒体组)。media 为条目列表,每条:字符串(路径/file_id/URL)
         或 {"media": ..., "type": "photo"|"document"|"video"|"audio", "caption": ...}
@@ -742,7 +764,12 @@ class TelegramClient:
                 raise McpError(INTERNAL, f"media_group 条目类型不支持: {type(item).__name__}")
         if not items:
             raise McpError(INTERNAL, "media_group 不能为空")
-        msgs = await self.raw.send_media_group(chat_id, items, reply_parameters=_reply(reply_to_message_id))
+        msgs = await self.raw.send_media_group(
+            chat_id,
+            items,
+            reply_parameters=_reply(reply_to_message_id),
+            message_thread_id=message_thread_id,
+        )
         return {
             "count": len(msgs),
             "media_group_id": getattr(msgs[0], "media_group_id", None) if msgs else None,
@@ -761,6 +788,7 @@ class TelegramClient:
         correct_option_id: int | None = None,
         explanation: str | None = None,
         open_period: int | None = None,
+        message_thread_id: int | None = None,
     ) -> dict:
         """发送投票/测验。options 为选项文本列表;is_quiz 时可用 correct_option_id(0 基)+ explanation。"""
         from pyrogram.enums import PollType
@@ -779,6 +807,7 @@ class TelegramClient:
             correct_option_ids=[correct_option_id] if correct_option_id is not None else None,
             explanation=explanation,
             open_period=open_period,
+            message_thread_id=message_thread_id,
         )
         if msg is None:
             raise McpError(INTERNAL, "send_poll 未返回消息")
@@ -789,10 +818,16 @@ class TelegramClient:
         poll = await self.raw.vote_poll(chat_id, message_id, options)
         return poll_view(poll) or {}
 
-    async def forward_message(self, chat_id: int, from_chat_id: int, message_ids: int | list[int]) -> dict:
+    async def forward_message(
+        self,
+        chat_id: int,
+        from_chat_id: int,
+        message_ids: int | list[int],
+        message_thread_id: int | None = None,
+    ) -> dict:
         """转发消息(如"把频道文章转发给 bot")。message_ids:单条或列表。"""
         ids = [message_ids] if isinstance(message_ids, int) else list(message_ids)
-        msgs = await self.raw.forward_messages(chat_id, from_chat_id, ids)
+        msgs = await self.raw.forward_messages(chat_id, from_chat_id, ids, message_thread_id=message_thread_id)
         return {"count": len(msgs), "messages": [message_view(m) for m in msgs]}
 
     async def join_chat(self, chat_id: int | str) -> dict:
@@ -837,9 +872,11 @@ class TelegramClient:
                 "hint": "bot 10 秒内未应答 inline 查询(可能未开启 inline mode、查询处理慢或报错)",
             }
         switch_pm = getattr(results, "switch_pm", None)
+        qid = getattr(results, "query_id", None)
         return {
             "bot": bot_username,
             "query": query,
+            "query_id": str(qid) if qid is not None else None,
             "offset": offset,
             "count": len(results.results or []),
             "gallery": bool(getattr(results, "gallery", False)),
@@ -855,6 +892,30 @@ class TelegramClient:
             ),
             "results": [inline_result_view(r) for r in (results.results or [])],
         }
+
+    async def send_inline_bot_result(
+        self,
+        chat_id: int,
+        query_id: int | str,
+        result_id: str,
+        reply_to_message_id: int | None = None,
+        message_thread_id: int | None = None,
+    ) -> dict:
+        """选中并发送一条 inline 查询结果(触发 bot 的 chosen_inline_result)。"""
+        try:
+            qid = int(query_id)
+        except (TypeError, ValueError) as exc:
+            raise McpError(INTERNAL, f"query_id 须为整数或数字字符串: {query_id!r}") from exc
+        msg = await self.raw.send_inline_bot_result(
+            chat_id,
+            qid,
+            result_id,
+            reply_parameters=_reply(reply_to_message_id),
+            message_thread_id=message_thread_id,
+        )
+        if msg is None:
+            return {"chat_id": chat_id, "query_id": str(qid), "result_id": result_id, "sent": True}
+        return message_view(msg)
 
     # ---------- 读取 ----------
 
@@ -909,8 +970,17 @@ class TelegramClient:
             )
         return {"count": len(dialogs), "dialogs": dialogs}
 
-    async def search_messages(self, chat_id: int, query: str, limit: int = 20) -> dict:
-        messages = [message_view(m) async for m in self.raw.search_messages(chat_id, query, limit=limit)]
+    async def search_messages(
+        self,
+        chat_id: int,
+        query: str,
+        limit: int = 20,
+        message_thread_id: int | None = None,
+    ) -> dict:
+        messages = [
+            message_view(m)
+            async for m in self.raw.search_messages(chat_id, query, limit=limit, message_thread_id=message_thread_id)
+        ]
         return {
             "chat_id": chat_id,
             "query": query,

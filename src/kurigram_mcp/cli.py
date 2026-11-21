@@ -397,6 +397,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="外网访问地址:通过反代/Cloudflare 隧道等从外网使用本服务时填写,如 https://tg.example.com,"
         "用于生成远程上传/下载文件的链接;仅在本机使用可不填",
     )
+    run_p.add_argument(
+        "-t",
+        "--toolsets",
+        help="启用的工具组(逗号分隔: core,stickers,forum,extras,raw 或 all;默认取 TOOLSETS/config.yaml,缺省 all)",
+    )
     run_p.add_argument("-s", "--stateful", action="store_true", help="使用有状态会话模式(默认无状态,推荐)")
     run_p.add_argument("--json-response", action="store_true", help="纯 JSON 响应,不用 SSE(部分客户端不支持)")
 
@@ -462,13 +467,19 @@ def main(argv: list[str] | None = None) -> int:
         overrides["path"] = args.path
     if getattr(args, "public_url", None):
         overrides["public_url"] = args.public_url
+    if getattr(args, "toolsets", None):
+        overrides["toolsets"] = args.toolsets
     overrides["stateless"] = not getattr(args, "stateful", False)  # 默认无状态(服务器重启客户端自动恢复)
     if getattr(args, "json_response", False):
         overrides["json_response"] = True
 
     # --account 指定单账号(保留隔离模式);缺省启动全部已注册账号
     accounts: list[str] | None = None
+    # 提前校验 toolsets,非法值给出清晰提示
+    from .config import parse_toolsets
+
     try:
+        active_toolsets = parse_toolsets(overrides.get("toolsets") or settings.toolsets)
         if getattr(args, "account", None):
             account = settings.resolve_account(args.account)
             account_name = account.account_name or DEFAULT_ACCOUNT
@@ -486,9 +497,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     logger.info(
-        "kurigram-mcp v{} 启动中 (accounts={} transport=streamable-http)",
+        "kurigram-mcp v{} 启动中 (accounts={} toolsets={} transport=streamable-http)",
         __version__,
         ",".join(accounts) if accounts else "全部已注册",
+        ",".join(active_toolsets),
     )
     run_server(settings, accounts=accounts, **overrides)
     return 0

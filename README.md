@@ -76,19 +76,24 @@ km run                   # every tool now accepts account="alice" / account="bob
 - Per-account `--allowed-chat-ids` overrides the global whitelist for that account; accounts without their own whitelist
   fall back to the global `allowed_chat_ids`.
 - `mcp_get_server_info` lists all connected accounts.
-- Short flags: `km run -a/--account -H/--host -p/--port -u/--public-url -s/--stateful`;
+- Short flags: `km run -a/--account -H/--host -p/--port -u/--public-url -t/--toolsets -s/--stateful`;
   `km session add/set -x/--proxy -c/--allowed-chat-ids`; `km -V/--version`.
 
-## 🧰 Tools (36)
+## 🧰 Tools (43, configurable via `--toolsets`)
 
-| Group      | Tools                                                                                                                                                                                                                                                                        |
-|------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 🧾 Session | `whoami`, `mcp_get_server_info`                                                                                                                                                                                                                                              |
-| 📤 Send    | `send_message`, `send_rich_message`, `send_photo`, `send_document`, `send_voice`, `send_sticker`, `send_media_group`, `send_poll`, `vote_poll`, `forward_message`, `edit_message`, `delete_message`, `send_chat_action`, `start_bot`, `click_inline_button`, `send_reaction`, `send_inline_query`, `create_upload_url` |
-| 📥 Read    | `get_chat`, `get_chat_history`, `get_messages`, `get_dialogs`, `search_messages`, `get_chat_members_count`, `download_media`, `get_media_url`                                                                                                                               |
-| 👥 Group   | `join_chat`, `leave_chat`                                                                                                                                                                                                                                                    |
-| ⏱️ Events   | `wait_for_update` (predicates include `is_media` / `media_type`), `drain_updates`                                                                                                                                                                                          |
-| 🔬 Deep    | `raw_invoke`, `list_raw_methods`, `get_raw_method_info`                                                                                                                                                                                                                      |
+| Group (toolset)        | Tools                                                                                                                                                                                                                                                                                           |
+|------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 🧾 Session (always on) | `whoami`, `mcp_get_server_info`                                                                                                                                                                                                                                                                 |
+| 📤 Send (`core`)       | `send_message`, `send_rich_message`, `send_photo`, `send_document`, `send_voice`, `send_sticker`, `send_media_group`, `send_poll`, `vote_poll`, `forward_message`, `edit_message`, `delete_message`, `send_chat_action`, `start_bot`, `click_inline_button`, `send_reaction`, `send_inline_query`, `send_inline_bot_result`, `create_upload_url` |
+| 📥 Read (`core`)       | `get_chat`, `get_chat_history`, `get_messages`, `get_dialogs`, `search_messages`, `get_chat_members_count`, `download_media`, `get_media_url`                                                                                                                                                   |
+| 👥 Group (`core`)      | `join_chat`, `leave_chat`                                                                                                                                                                                                                                                                       |
+| ⏱️ Events (`core`)     | `wait_for_update`, `expect_silent`, `drain_updates`, `probe_bot`                                                                                                                                                                                                                                |
+| 🎨 Stickers (`stickers`) | `stickers_query` (8 read actions), `stickers_manage` (20 install/favorites/pack CRUD actions)                                                                                                                                                                                                 |
+| 💬 Forum (`forum`)     | `manage_forum_topics` (13 forum topic query & management actions)                                                                                                                                                                                                                               |
+| 🧩 Extras (`extras`)   | `send_extra` (video/animation/audio/location/contact/dice/checklist), `manage_message_extras` (pin/unpin/mark_checklist)                                                                                                                                                                        |
+| 🔬 Deep (`raw`)        | `raw_invoke`, `list_raw_methods`, `get_raw_method_info`                                                                                                                                                                                                                                         |
+
+> Trim exposed toolsets via `km run --toolsets core,stickers`, `TOOLSETS` env var, or `toolsets:` in `config.yaml` (default: `all`).
 
 ## 🔌 Client Setup
 
@@ -172,6 +177,7 @@ allowed_chat_ids: "123456789,me"   # global fallback whitelist (per-account over
 host: 127.0.0.1
 port: 8765
 auth_token: auto_generated_or_yours # Bearer auth
+toolsets: all                       # enabled toolsets: all or comma-separated core,stickers,forum,extras,raw
 public_base_url: ""                 # public URL when reached from outside (e.g. tunnel domain); skip for local-only use
 file_url_ttl_seconds: 900           # signed file URL lifetime
 upload_max_bytes: 2147483648        # per-upload size cap (2 GiB)
